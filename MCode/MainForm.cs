@@ -59,7 +59,8 @@ namespace MCode
             {
                 Dock = DockStyle.Top,
                 Height = 100,
-                Padding = new Padding(10)
+                Padding = new Padding(10),
+                BackColor = Color.FromArgb(230, 230, 230)
             };
             this.Controls.Add(topPanel);
 
@@ -101,16 +102,26 @@ namespace MCode
             topPanel.Controls.Add(buttonsPanel);
             topPanel.SizeChanged += (s, e) => buttonsPanel.Width = topPanel.Width - 20; // Адаптация ширины
 
+            //Линия разделения под topPanel
+            Label separatorLine = new Label
+            {
+                Height = 1,
+                Dock = DockStyle.Top, // Поместится под topPanel, если topPanel тоже Dock.Top
+                BackColor = Color.LightGray, // Или другой цвет для линии
+                                             // Margin = new Padding(0, 0, 0, 5) // Небольшой отступ снизу от линии
+            };
+            this.Controls.Add(separatorLine);
+            separatorLine.BringToFront();
 
-            analyzeButton = CreateStyledButton("Анализ файла", Color.FromArgb(70, 130, 180)); // SteelBlue
+            analyzeButton = CreateStyledButton("Анализ файла", Color.FromArgb(70, 130, 180), 180); // SteelBlue
             analyzeButton.Click += AnalyzeButton_Click;
             buttonsPanel.Controls.Add(analyzeButton);
 
-            compareButton = CreateStyledButton("Сравнить два файла", Color.FromArgb(60, 179, 113)); // MediumSeaGreen
+            compareButton = CreateStyledButton("Сравнить два файла", Color.FromArgb(60, 179, 113), 180); // MediumSeaGreen
             compareButton.Click += CompareButton_Click;
             buttonsPanel.Controls.Add(compareButton);
 
-            checkNNButton = CreateStyledButton("Проверка на заимствования (НС)", Color.FromArgb(255, 50, 71)); // Tomato
+            checkNNButton = CreateStyledButton("Проверка на заимствования (НС)", Color.FromArgb(255, 50, 71), 240); // Tomato
             checkNNButton.Click += CheckNNButton_Click;
             buttonsPanel.Controls.Add(checkNNButton);
 
@@ -172,12 +183,12 @@ namespace MCode
         }
 
 
-        private Button CreateStyledButton(string text, Color backColor)
+        private Button CreateStyledButton(string text, Color backColor, int width)
         {
             return new Button
             {
                 Text = text,
-                Size = new System.Drawing.Size(180, 35), // Немного больше кнопки
+                Size = new System.Drawing.Size(width, 35), // Немного больше кнопки
                 Margin = new Padding(5),
                 FlatStyle = FlatStyle.Flat, // Плоский стиль
                 BackColor = backColor,
