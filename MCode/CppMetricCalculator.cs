@@ -1,8 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MCode
 {
@@ -10,12 +6,13 @@ namespace MCode
     {
         public void Calculate(string sourceCode)
         {
-            throw new NotImplementedException("Парсинг C++-кода через Clang ещё не реализован.");
+            throw new NotImplementedException("Парсинг C++ кода через Clang еще не реализован. " +
+                                              "Эта функциональность будет добавлена в будущем.");
         }
 
         public MetricResult GetResults()
         {
-            throw new NotImplementedException("Парсинг C++-кода через Clang ещё не реализован.");
+            throw new NotImplementedException("Парсинг C++ кода через Clang еще не реализован.");
         }
     }
 }
