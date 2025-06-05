@@ -6,6 +6,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -17,7 +18,8 @@ namespace MCode
         private Button analyzeButton;
         private Button compareButton;
         private Button checkNNButton;
-        private TextBox resultTextBox; // Будет заменен на что-то более продвинутое
+        private Button analyzeTextFileButton;
+        private TextBox resultTextBox; 
         private ToolStripStatusLabel statusLabel; // Для отображения статуса
 
         private IMetricCalculator calculator;
@@ -26,6 +28,8 @@ namespace MCode
         private string firstFileContentForCompare;
         private string firstFileNameForCompare;
         private bool isWaitingForSecondFileForComparison = false;
+
+        private enum SourceLanguage { Unknown, Python, CSharp, Cpp }
 
         // Для более красивого отображения результатов
         private DataGridView resultsDataGridView;
@@ -125,6 +129,10 @@ namespace MCode
             checkNNButton.Click += CheckNNButton_Click;
             buttonsPanel.Controls.Add(checkNNButton);
 
+            analyzeTextFileButton = CreateStyledButton("Анализ .txt (авто)", Color.FromArgb(128, 128, 128), 190); // Серый, например
+            analyzeTextFileButton.Click += AnalyzeTextFileButton_Click;
+            buttonsPanel.Controls.Add(analyzeTextFileButton);
+
             // Статус бар внизу
             StatusStrip statusStrip = new StatusStrip();
             statusLabel = new ToolStripStatusLabel("Готов к работе.") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
@@ -182,6 +190,260 @@ namespace MCode
             outputTabControl.TabPages.Add(tableOutputPage);
         }
 
+        private async void AnalyzeTextFileButton_Click(object sender, EventArgs e)
+        {
+            ResetComparisonState("Начат анализ текстового файла. Операция сравнения отменена.");
+            using (OpenFileDialog ofd = new OpenFileDialog())
+            {
+                ofd.Filter = "Text Files (*.txt)|*.txt|All Files (*.*)|*.*";
+                ofd.Title = "Выберите текстовый файл с кодом";
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    ClearResults();
+                    await ProcessTextFileAsync(ofd.FileName);
+                }
+            }
+        }
+
+        private async Task ProcessTextFileAsync(string filePath)
+        {
+            string fileName = Path.GetFileName(filePath);
+            SetStatus($"Чтение файла: {fileName}...");
+            EnableButtons(false);
+
+            try
+            {
+                string code = await Task.Run(() => File.ReadAllText(filePath));
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    ShowError($"Файл ({fileName}) пуст.");
+                    SetStatus($"Файл ({fileName}) пуст. Обработка прервана.");
+                    EnableButtons(true);
+                    return;
+                }
+
+                SetStatus($"Определение языка в файле: {fileName}...");
+                SourceLanguage detectedLanguage = DetectLanguage(code);
+
+                if (detectedLanguage == SourceLanguage.Unknown)
+                {
+                    ShowError($"Не удалось определить язык программирования в файле: {fileName}.\n" +
+                              "Попробуйте указать язык вручную и использовать соответствующие кнопки анализа.");
+                    SetStatus($"Язык в {fileName} не определен.");
+                    EnableButtons(true);
+                    return;
+                }
+
+                // Устанавливаем калькулятор для определенного языка
+                UpdateCalculatorForLanguage(detectedLanguage);
+                AppendToRichTextBox($"Определен язык: {detectedLanguage} в файле {fileName}", Color.DarkGreen, true);
+
+                SetStatus($"Анализ файла: {fileName} как {detectedLanguage}...");
+                // Используем тот же ProcessFileAsync, что и для обычного анализа,
+                // но он будет использовать уже настроенный `analyzer`
+                // Однако, ProcessFileAsync принимает AnalysisAction. Ему нужно передать, что делать.
+                // Для простоты, вызовем логику анализа напрямую.
+
+                MetricResult result = null;
+                await Task.Run(() =>
+                {
+                    result = analyzer.Analyze(code); // analyzer уже настроен через UpdateCalculatorForLanguage
+                });
+
+                DisplayAnalysisResults(result, $"{fileName} (как {detectedLanguage})");
+                SetStatus($"Анализ файла {fileName} (как {detectedLanguage}) завершен.");
+
+            }
+            catch (NotImplementedException nie) // От CppMetricCalculator, если он заглушка
+            {
+                ShowError($"Функциональность для языка {languageComboBox.SelectedItem} (возможно, C++) еще не реализована: {nie.Message}");
+                SetStatus($"Ошибка: {nie.Message}");
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Ошибка при обработке текстового файла {fileName}: {ex.Message}\n\n{ex.StackTrace}");
+                SetStatus($"Ошибка обработки файла {fileName}.");
+            }
+            finally
+            {
+                EnableButtons(true);
+                // Вернуть ComboBox и калькулятор в исходное состояние (или оставить на определенном языке)
+                // languageComboBox.SelectedIndex = 0; // Например, вернуть Python по умолчанию
+                // UpdateCalculator(); // И обновить калькулятор
+                // Решите, нужно ли это поведение. Пока оставим так, как определилось.
+            }
+        }
+
+        private void UpdateCalculatorForLanguage(SourceLanguage lang)
+        {
+            // Временно меняем выбранный элемент в ComboBox, чтобы UpdateCalculator сработал правильно
+            // Это не самый элегантный способ, но простой.
+            string langStr = "";
+            switch (lang)
+            {
+                case SourceLanguage.Python: langStr = "Python"; break;
+                case SourceLanguage.CSharp: langStr = "C#"; break;
+                case SourceLanguage.Cpp: langStr = "C++ (не реализовано)"; break; // Или "C++" если используете упрощенный
+            }
+
+            int langIndex = -1;
+            for (int i = 0; i < languageComboBox.Items.Count; ++i)
+            {
+                if (languageComboBox.Items[i].ToString() == langStr)
+                {
+                    langIndex = i;
+                    break;
+                }
+            }
+
+            if (langIndex != -1 && languageComboBox.SelectedIndex != langIndex)
+            {
+                languageComboBox.SelectedIndexChanged -= LanguageComboBox_SelectedIndexChanged; // Временно отписываемся
+                languageComboBox.SelectedIndex = langIndex;
+                UpdateCalculator(); // Это обновит this.calculator и this.analyzer
+                languageComboBox.SelectedIndexChanged += LanguageComboBox_SelectedIndexChanged; // Подписываемся обратно
+            }
+            else if (langIndex != -1) // Если уже был выбран нужный язык
+            {
+                UpdateCalculator(); // Просто обновим на всякий случай
+            }
+            // Если язык не найден в ComboBox (не должно случиться при правильной логике), то ничего не делаем
+        }
+
+        // Добавляем обработчик события для ComboBox, если его нет в таком виде
+        private void LanguageComboBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            UpdateCalculator();
+            ResetComparisonState("Смена языка. Операция сравнения отменена.");
+        }
+
+
+        private SourceLanguage DetectLanguage(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return SourceLanguage.Unknown;
+
+            // Убираем BOM, если он есть, чтобы не мешал регулярным выражениям
+            if (code.StartsWith("\uFEFF"))
+            {
+                code = code.Substring(1);
+            }
+
+            // Нормализация: уберем часть многострочных комментариев, чтобы они не влияли на поиск ключевых слов
+            // Это очень грубо, но может помочь. Более сложный анализ комментариев - ниже.
+            string codeForKeywordSearch = Regex.Replace(code, @"/\*.*?\*/", "", RegexOptions.Singleline);
+            codeForKeywordSearch = Regex.Replace(codeForKeywordSearch, @"#.*", ""); // Убираем Python комментарии до конца строки для поиска
+            codeForKeywordSearch = Regex.Replace(codeForKeywordSearch, @"//.*", "");// Убираем C-style комментарии до конца строки для поиска
+            string lowerCode = codeForKeywordSearch.ToLower();
+
+
+            // --- Python ---
+            double pythonScore = 0;
+            // Характерные ключевые слова и конструкции
+            if (Regex.IsMatch(code, @"^\s*def\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(.*\)\s*:", RegexOptions.Multiline)) pythonScore += 30;
+            if (Regex.IsMatch(code, @"^\s*class\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(?.*\)?\s*:", RegexOptions.Multiline)) pythonScore += 25;
+            if (Regex.IsMatch(lowerCode, @"\b(elif|else:)\b")) pythonScore += 15; // else: важно для отличия от C-подобных
+            if (Regex.IsMatch(lowerCode, @"\b(import|from)\b") && !lowerCode.Contains("#include")) pythonScore += 20;
+            if (Regex.IsMatch(lowerCode, @"\b(print\s*\(|input\s*\()")) pythonScore += 10;
+            if (Regex.IsMatch(lowerCode, @"\b(try\s*:|except\s.*:|finally\s*:)\b")) pythonScore += 10;
+            if (Regex.IsMatch(lowerCode, @"\b(with|as|yield|lambda|pass|assert|del)\b")) pythonScore += 5;
+            // Отступы - сложный признак для простого анализа, но важен.
+            // Проверим наличие строк, начинающихся с пробелов, не являющихся частью комментария или строки
+            var pythonLines = code.Split('\n');
+            int indentedLines = 0;
+            foreach (var line in pythonLines)
+            {
+                var trimmedLine = line.TrimStart();
+                if (trimmedLine.Length < line.Length && trimmedLine.Length > 0 && !trimmedLine.StartsWith("#")) // Строка с отступом, не пустая, не комментарий
+                {
+                    indentedLines++;
+                }
+            }
+            if (indentedLines > pythonLines.Length / 4) pythonScore += 15; // Если хотя бы четверть строк с отступом
+
+            // Комментарии Python
+            if (code.Contains("#")) pythonScore += 5;
+            if (code.Contains("\"\"\"") || code.Contains("'''")) pythonScore += 10; // Docstrings
+
+            // --- C# ---
+            double csharpScore = 0;
+            // Характерные ключевые слова и конструкции
+            if (Regex.IsMatch(lowerCode, @"\bnamespace\s+[a-zA-Z_][a-zA-Z0-9_.]*\s*{")) csharpScore += 30;
+            if (Regex.IsMatch(lowerCode, @"\b(public|private|protected|internal|static|virtual|override|sealed|abstract)\s+(class|struct|interface|enum|delegate|void|async)\b")) csharpScore += 25;
+            if (Regex.IsMatch(lowerCode, @"\busing\s+System(\.[a-zA-Z_][a-zA-Z0-9_.]*)?;")) csharpScore += 20; // using System;
+            if (Regex.IsMatch(lowerCode, @"\b(Console\.Write|Console\.ReadLine|string\[\]\s+args)\b")) csharpScore += 10;
+            if (Regex.IsMatch(lowerCode, @"\b(get\s*{|set\s*{|value\b)")) csharpScore += 15; // Свойства
+            if (Regex.IsMatch(code, @"=>")) csharpScore += 10; // Лямбды-выражения
+            if (Regex.IsMatch(lowerCode, @"\b(var|int|string|bool|double|float|char|decimal|object)\s+[a-zA-Z_]")) csharpScore += 5;
+            if (Regex.IsMatch(lowerCode, @"\btry\s*{|catch\s*\(.*?\)\s*{|finally\s*{")) csharpScore += 10;
+
+            // Комментарии C#
+            if (code.Contains("///")) csharpScore += 10; // XML Doc comments
+            if (code.Contains("//")) csharpScore += 5;
+            if (code.Contains("/*") && code.Contains("*/")) csharpScore += 5;
+
+            // Атрибуты
+            if (Regex.IsMatch(code, @"\[\s*[a-zA-Z_][a-zA-Z0-9_]*Attribute\s*\]", RegexOptions.IgnoreCase)) csharpScore += 15;
+            else if (Regex.IsMatch(code, @"\[\s*[a-zA-Z_][a-zA-Z0-9_.]*\s*\]")) csharpScore += 10;
+
+
+            // --- C++ ---
+            double cppScore = 0;
+            // Характерные ключевые слова и конструкции
+            if (Regex.IsMatch(code, @"#\s*include\s*<[a-zA-Z_][a-zA-Z0-9_./]*>")) cppScore += 30; // #include <iostream>
+            else if (Regex.IsMatch(code, @"#\s*include\s*""[a-zA-Z_][a-zA-Z0-9_./]*""")) cppScore += 25; // #include "myheader.h"
+            if (Regex.IsMatch(lowerCode, @"\b(std\s*::|cout\s*<<|cin\s*>>)")) cppScore += 25;
+            if (Regex.IsMatch(lowerCode, @"\b(int|void)\s+main\s*\(")) cppScore += 20;
+            if (Regex.IsMatch(lowerCode, @"\b(class|struct)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*{[^}]*};")) cppScore += 20; // Объявление class/struct с ; в конце
+            if (Regex.IsMatch(code, @"\b[a-zA-Z_][a-zA-Z0-9_]*\s*(\*|&)\s*[a-zA-Z_]")) cppScore += 15; // Указатели/ссылки в объявлениях
+            if (Regex.IsMatch(code, @"->|::")) cppScore += 10;
+            if (Regex.IsMatch(lowerCode, @"\b(new\s+|delete\s+|template\s*<.*?>|nullptr|virtual|friend|using\s+namespace\s+\w+;)")) cppScore += 10;
+            if (Regex.IsMatch(lowerCode, @"\b(try\s*{|catch\s*\(.*?\)\s*{|throw\b)")) cppScore += 10;
+
+            // Комментарии C++ (такие же как C#)
+            if (code.Contains("//")) cppScore += 5;
+            if (code.Contains("/*") && code.Contains("*/")) cppScore += 5;
+
+            // Исключающие признаки (если точно Python, то C#/C++ маловероятны)
+            if (pythonScore > 20 && Regex.IsMatch(code, @":\s*($|\n\s+[^\s#])")) // Двоеточие с последующим блоком кода (характерно для Python)
+            {
+                csharpScore *= 0.5;
+                cppScore *= 0.5;
+            }
+            // Если есть using System; и namespace, то это вряд ли Python или чистый C++
+            if (csharpScore > 20 && lowerCode.Contains("using system;") && lowerCode.Contains("namespace "))
+            {
+                pythonScore *= 0.3;
+                cppScore *= 0.6; // C++/CLI может иметь using namespace, но #include важнее
+            }
+            // Если есть #include <...> и нет явных признаков C# (namespace, using System)
+            if (cppScore > 20 && !lowerCode.Contains("namespace ") && !lowerCode.Contains("using system;"))
+            {
+                pythonScore *= 0.4;
+                csharpScore *= 0.4;
+            }
+
+
+            // Отладочный вывод (можно закомментировать после отладки)
+            // AppendToRichTextBox($"Scores: Py={pythonScore:F0}, CS={csharpScore:F0}, CPP={cppScore:F0}", Color.Magenta);
+
+            // Принятие решения
+            double threshold = 15.0; // Минимальный порог для определения
+            if (pythonScore > threshold && pythonScore > csharpScore && pythonScore > cppScore) return SourceLanguage.Python;
+            if (csharpScore > threshold && csharpScore > pythonScore && csharpScore > cppScore) return SourceLanguage.CSharp;
+            if (cppScore > threshold && cppScore > pythonScore && cppScore > csharpScore) return SourceLanguage.Cpp;
+
+            // Если очки близки, можно попробовать более точные правила или вернуть Unknown
+            // Например, если разница между лучшим и вторым меньше определенного значения
+            var scores = new[] { pythonScore, csharpScore, cppScore };
+            var maxScore = scores.Max();
+            if (maxScore < threshold) return SourceLanguage.Unknown; // Ни один язык не набрал достаточно
+
+            // Если несколько языков имеют высокий балл, это может быть проблемой
+            // Здесь можно добавить более сложную логику разрешения конфликтов,
+            // но для начала оставим так.
+
+            return SourceLanguage.Unknown;
+        }
 
         private Button CreateStyledButton(string text, Color backColor, int width)
         {
