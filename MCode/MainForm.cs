@@ -18,7 +18,6 @@ namespace MCode
         private Button analyzeButton;
         private Button compareButton;
         private Button checkNNButton;
-        private Button analyzeTextFileButton;
         private TextBox resultTextBox; 
         private ToolStripStatusLabel statusLabel; // Для отображения статуса
 
@@ -84,7 +83,7 @@ namespace MCode
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 FlatStyle = FlatStyle.System // Используем системный стиль для лучшей интеграции
             };
-            languageComboBox.Items.AddRange(new string[] { "Python", "C#", "C++ (не реализовано)" });
+            languageComboBox.Items.AddRange(new string[] { "Python", "C#", "C++" });
             languageComboBox.SelectedIndex = 0; // Python по умолчанию
             languageComboBox.SelectedIndexChanged += (s, e) =>
             {
@@ -121,17 +120,13 @@ namespace MCode
             analyzeButton.Click += AnalyzeButton_Click;
             buttonsPanel.Controls.Add(analyzeButton);
 
-            compareButton = CreateStyledButton("Сравнить два файла", Color.FromArgb(60, 179, 113), 180); // MediumSeaGreen
+            compareButton = CreateStyledButton("Сравнить файлы на плагиат", Color.FromArgb(60, 179, 113), 200); // MediumSeaGreen
             compareButton.Click += CompareButton_Click;
             buttonsPanel.Controls.Add(compareButton);
 
             checkNNButton = CreateStyledButton("Проверка на заимствования (НС)", Color.FromArgb(255, 50, 71), 240); // Tomato
             checkNNButton.Click += CheckNNButton_Click;
             buttonsPanel.Controls.Add(checkNNButton);
-
-            analyzeTextFileButton = CreateStyledButton("Анализ .txt (авто)", Color.FromArgb(128, 128, 128), 190); // Серый, например
-            analyzeTextFileButton.Click += AnalyzeTextFileButton_Click;
-            buttonsPanel.Controls.Add(analyzeTextFileButton);
 
             // Статус бар внизу
             StatusStrip statusStrip = new StatusStrip();
@@ -190,90 +185,6 @@ namespace MCode
             outputTabControl.TabPages.Add(tableOutputPage);
         }
 
-        private async void AnalyzeTextFileButton_Click(object sender, EventArgs e)
-        {
-            ResetComparisonState("Начат анализ текстового файла. Операция сравнения отменена.");
-            using (OpenFileDialog ofd = new OpenFileDialog())
-            {
-                ofd.Filter = "Text Files (*.txt)|*.txt|All Files (*.*)|*.*";
-                ofd.Title = "Выберите текстовый файл с кодом";
-                if (ofd.ShowDialog() == DialogResult.OK)
-                {
-                    ClearResults();
-                    await ProcessTextFileAsync(ofd.FileName);
-                }
-            }
-        }
-
-        private async Task ProcessTextFileAsync(string filePath)
-        {
-            string fileName = Path.GetFileName(filePath);
-            SetStatus($"Чтение файла: {fileName}...");
-            EnableButtons(false);
-
-            try
-            {
-                string code = await Task.Run(() => File.ReadAllText(filePath));
-                if (string.IsNullOrWhiteSpace(code))
-                {
-                    ShowError($"Файл ({fileName}) пуст.");
-                    SetStatus($"Файл ({fileName}) пуст. Обработка прервана.");
-                    EnableButtons(true);
-                    return;
-                }
-
-                SetStatus($"Определение языка в файле: {fileName}...");
-                SourceLanguage detectedLanguage = DetectLanguage(code);
-
-                if (detectedLanguage == SourceLanguage.Unknown)
-                {
-                    ShowError($"Не удалось определить язык программирования в файле: {fileName}.\n" +
-                              "Попробуйте указать язык вручную и использовать соответствующие кнопки анализа.");
-                    SetStatus($"Язык в {fileName} не определен.");
-                    EnableButtons(true);
-                    return;
-                }
-
-                // Устанавливаем калькулятор для определенного языка
-                UpdateCalculatorForLanguage(detectedLanguage);
-                AppendToRichTextBox($"Определен язык: {detectedLanguage} в файле {fileName}", Color.DarkGreen, true);
-
-                SetStatus($"Анализ файла: {fileName} как {detectedLanguage}...");
-                // Используем тот же ProcessFileAsync, что и для обычного анализа,
-                // но он будет использовать уже настроенный `analyzer`
-                // Однако, ProcessFileAsync принимает AnalysisAction. Ему нужно передать, что делать.
-                // Для простоты, вызовем логику анализа напрямую.
-
-                MetricResult result = null;
-                await Task.Run(() =>
-                {
-                    result = analyzer.Analyze(code); // analyzer уже настроен через UpdateCalculatorForLanguage
-                });
-
-                DisplayAnalysisResults(result, $"{fileName} (как {detectedLanguage})");
-                SetStatus($"Анализ файла {fileName} (как {detectedLanguage}) завершен.");
-
-            }
-            catch (NotImplementedException nie) // От CppMetricCalculator, если он заглушка
-            {
-                ShowError($"Функциональность для языка {languageComboBox.SelectedItem} (возможно, C++) еще не реализована: {nie.Message}");
-                SetStatus($"Ошибка: {nie.Message}");
-            }
-            catch (Exception ex)
-            {
-                ShowError($"Ошибка при обработке текстового файла {fileName}: {ex.Message}\n\n{ex.StackTrace}");
-                SetStatus($"Ошибка обработки файла {fileName}.");
-            }
-            finally
-            {
-                EnableButtons(true);
-                // Вернуть ComboBox и калькулятор в исходное состояние (или оставить на определенном языке)
-                // languageComboBox.SelectedIndex = 0; // Например, вернуть Python по умолчанию
-                // UpdateCalculator(); // И обновить калькулятор
-                // Решите, нужно ли это поведение. Пока оставим так, как определилось.
-            }
-        }
-
         private void UpdateCalculatorForLanguage(SourceLanguage lang)
         {
             // Временно меняем выбранный элемент в ComboBox, чтобы UpdateCalculator сработал правильно
@@ -283,7 +194,7 @@ namespace MCode
             {
                 case SourceLanguage.Python: langStr = "Python"; break;
                 case SourceLanguage.CSharp: langStr = "C#"; break;
-                case SourceLanguage.Cpp: langStr = "C++ (не реализовано)"; break; // Или "C++" если используете упрощенный
+                case SourceLanguage.Cpp: langStr = "C++"; break;
             }
 
             int langIndex = -1;
@@ -309,140 +220,9 @@ namespace MCode
             }
             // Если язык не найден в ComboBox (не должно случиться при правильной логике), то ничего не делаем
         }
-
-        // Добавляем обработчик события для ComboBox, если его нет в таком виде
         private void LanguageComboBox_SelectedIndexChanged(object sender, EventArgs e)
         {
             UpdateCalculator();
-            ResetComparisonState("Смена языка. Операция сравнения отменена.");
-        }
-
-
-        private SourceLanguage DetectLanguage(string code)
-        {
-            if (string.IsNullOrWhiteSpace(code)) return SourceLanguage.Unknown;
-
-            // Убираем BOM, если он есть, чтобы не мешал регулярным выражениям
-            if (code.StartsWith("\uFEFF"))
-            {
-                code = code.Substring(1);
-            }
-
-            // Нормализация: уберем часть многострочных комментариев, чтобы они не влияли на поиск ключевых слов
-            // Это очень грубо, но может помочь. Более сложный анализ комментариев - ниже.
-            string codeForKeywordSearch = Regex.Replace(code, @"/\*.*?\*/", "", RegexOptions.Singleline);
-            codeForKeywordSearch = Regex.Replace(codeForKeywordSearch, @"#.*", ""); // Убираем Python комментарии до конца строки для поиска
-            codeForKeywordSearch = Regex.Replace(codeForKeywordSearch, @"//.*", "");// Убираем C-style комментарии до конца строки для поиска
-            string lowerCode = codeForKeywordSearch.ToLower();
-
-
-            // --- Python ---
-            double pythonScore = 0;
-            // Характерные ключевые слова и конструкции
-            if (Regex.IsMatch(code, @"^\s*def\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(.*\)\s*:", RegexOptions.Multiline)) pythonScore += 30;
-            if (Regex.IsMatch(code, @"^\s*class\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(?.*\)?\s*:", RegexOptions.Multiline)) pythonScore += 25;
-            if (Regex.IsMatch(lowerCode, @"\b(elif|else:)\b")) pythonScore += 15; // else: важно для отличия от C-подобных
-            if (Regex.IsMatch(lowerCode, @"\b(import|from)\b") && !lowerCode.Contains("#include")) pythonScore += 20;
-            if (Regex.IsMatch(lowerCode, @"\b(print\s*\(|input\s*\()")) pythonScore += 10;
-            if (Regex.IsMatch(lowerCode, @"\b(try\s*:|except\s.*:|finally\s*:)\b")) pythonScore += 10;
-            if (Regex.IsMatch(lowerCode, @"\b(with|as|yield|lambda|pass|assert|del)\b")) pythonScore += 5;
-            // Отступы - сложный признак для простого анализа, но важен.
-            // Проверим наличие строк, начинающихся с пробелов, не являющихся частью комментария или строки
-            var pythonLines = code.Split('\n');
-            int indentedLines = 0;
-            foreach (var line in pythonLines)
-            {
-                var trimmedLine = line.TrimStart();
-                if (trimmedLine.Length < line.Length && trimmedLine.Length > 0 && !trimmedLine.StartsWith("#")) // Строка с отступом, не пустая, не комментарий
-                {
-                    indentedLines++;
-                }
-            }
-            if (indentedLines > pythonLines.Length / 4) pythonScore += 15; // Если хотя бы четверть строк с отступом
-
-            // Комментарии Python
-            if (code.Contains("#")) pythonScore += 5;
-            if (code.Contains("\"\"\"") || code.Contains("'''")) pythonScore += 10; // Docstrings
-
-            // --- C# ---
-            double csharpScore = 0;
-            // Характерные ключевые слова и конструкции
-            if (Regex.IsMatch(lowerCode, @"\bnamespace\s+[a-zA-Z_][a-zA-Z0-9_.]*\s*{")) csharpScore += 30;
-            if (Regex.IsMatch(lowerCode, @"\b(public|private|protected|internal|static|virtual|override|sealed|abstract)\s+(class|struct|interface|enum|delegate|void|async)\b")) csharpScore += 25;
-            if (Regex.IsMatch(lowerCode, @"\busing\s+System(\.[a-zA-Z_][a-zA-Z0-9_.]*)?;")) csharpScore += 20; // using System;
-            if (Regex.IsMatch(lowerCode, @"\b(Console\.Write|Console\.ReadLine|string\[\]\s+args)\b")) csharpScore += 10;
-            if (Regex.IsMatch(lowerCode, @"\b(get\s*{|set\s*{|value\b)")) csharpScore += 15; // Свойства
-            if (Regex.IsMatch(code, @"=>")) csharpScore += 10; // Лямбды-выражения
-            if (Regex.IsMatch(lowerCode, @"\b(var|int|string|bool|double|float|char|decimal|object)\s+[a-zA-Z_]")) csharpScore += 5;
-            if (Regex.IsMatch(lowerCode, @"\btry\s*{|catch\s*\(.*?\)\s*{|finally\s*{")) csharpScore += 10;
-
-            // Комментарии C#
-            if (code.Contains("///")) csharpScore += 10; // XML Doc comments
-            if (code.Contains("//")) csharpScore += 5;
-            if (code.Contains("/*") && code.Contains("*/")) csharpScore += 5;
-
-            // Атрибуты
-            if (Regex.IsMatch(code, @"\[\s*[a-zA-Z_][a-zA-Z0-9_]*Attribute\s*\]", RegexOptions.IgnoreCase)) csharpScore += 15;
-            else if (Regex.IsMatch(code, @"\[\s*[a-zA-Z_][a-zA-Z0-9_.]*\s*\]")) csharpScore += 10;
-
-
-            // --- C++ ---
-            double cppScore = 0;
-            // Характерные ключевые слова и конструкции
-            if (Regex.IsMatch(code, @"#\s*include\s*<[a-zA-Z_][a-zA-Z0-9_./]*>")) cppScore += 30; // #include <iostream>
-            else if (Regex.IsMatch(code, @"#\s*include\s*""[a-zA-Z_][a-zA-Z0-9_./]*""")) cppScore += 25; // #include "myheader.h"
-            if (Regex.IsMatch(lowerCode, @"\b(std\s*::|cout\s*<<|cin\s*>>)")) cppScore += 25;
-            if (Regex.IsMatch(lowerCode, @"\b(int|void)\s+main\s*\(")) cppScore += 20;
-            if (Regex.IsMatch(lowerCode, @"\b(class|struct)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*{[^}]*};")) cppScore += 20; // Объявление class/struct с ; в конце
-            if (Regex.IsMatch(code, @"\b[a-zA-Z_][a-zA-Z0-9_]*\s*(\*|&)\s*[a-zA-Z_]")) cppScore += 15; // Указатели/ссылки в объявлениях
-            if (Regex.IsMatch(code, @"->|::")) cppScore += 10;
-            if (Regex.IsMatch(lowerCode, @"\b(new\s+|delete\s+|template\s*<.*?>|nullptr|virtual|friend|using\s+namespace\s+\w+;)")) cppScore += 10;
-            if (Regex.IsMatch(lowerCode, @"\b(try\s*{|catch\s*\(.*?\)\s*{|throw\b)")) cppScore += 10;
-
-            // Комментарии C++ (такие же как C#)
-            if (code.Contains("//")) cppScore += 5;
-            if (code.Contains("/*") && code.Contains("*/")) cppScore += 5;
-
-            // Исключающие признаки (если точно Python, то C#/C++ маловероятны)
-            if (pythonScore > 20 && Regex.IsMatch(code, @":\s*($|\n\s+[^\s#])")) // Двоеточие с последующим блоком кода (характерно для Python)
-            {
-                csharpScore *= 0.5;
-                cppScore *= 0.5;
-            }
-            // Если есть using System; и namespace, то это вряд ли Python или чистый C++
-            if (csharpScore > 20 && lowerCode.Contains("using system;") && lowerCode.Contains("namespace "))
-            {
-                pythonScore *= 0.3;
-                cppScore *= 0.6; // C++/CLI может иметь using namespace, но #include важнее
-            }
-            // Если есть #include <...> и нет явных признаков C# (namespace, using System)
-            if (cppScore > 20 && !lowerCode.Contains("namespace ") && !lowerCode.Contains("using system;"))
-            {
-                pythonScore *= 0.4;
-                csharpScore *= 0.4;
-            }
-
-
-            // Отладочный вывод (можно закомментировать после отладки)
-            // AppendToRichTextBox($"Scores: Py={pythonScore:F0}, CS={csharpScore:F0}, CPP={cppScore:F0}", Color.Magenta);
-
-            // Принятие решения
-            double threshold = 15.0; // Минимальный порог для определения
-            if (pythonScore > threshold && pythonScore > csharpScore && pythonScore > cppScore) return SourceLanguage.Python;
-            if (csharpScore > threshold && csharpScore > pythonScore && csharpScore > cppScore) return SourceLanguage.CSharp;
-            if (cppScore > threshold && cppScore > pythonScore && cppScore > csharpScore) return SourceLanguage.Cpp;
-
-            // Если очки близки, можно попробовать более точные правила или вернуть Unknown
-            // Например, если разница между лучшим и вторым меньше определенного значения
-            var scores = new[] { pythonScore, csharpScore, cppScore };
-            var maxScore = scores.Max();
-            if (maxScore < threshold) return SourceLanguage.Unknown; // Ни один язык не набрал достаточно
-
-            // Если несколько языков имеют высокий балл, это может быть проблемой
-            // Здесь можно добавить более сложную логику разрешения конфликтов,
-            // но для начала оставим так.
-
-            return SourceLanguage.Unknown;
         }
 
         private Button CreateStyledButton(string text, Color backColor, int width)
@@ -473,7 +253,7 @@ namespace MCode
                     case "C#":
                         calculator = new CSharpMetricCalculator();
                         break;
-                    case "C++ (не реализовано)":
+                    case "C++":
                         calculator = new CppMetricCalculator();
                         break;
                     default:
@@ -517,104 +297,81 @@ namespace MCode
         }
 
         #region Drag-Drop Handlers
-        private void MainForm_DragEnter(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                bool validExtensions = files.All(f => IsSupportedExtension(Path.GetExtension(f)));
 
-                if (validExtensions)
-                {
-                    if (isWaitingForSecondFileForComparison && files.Length == 1)
-                    {
-                        e.Effect = DragDropEffects.Copy; // Ожидаем один файл
-                    }
-                    else if (!isWaitingForSecondFileForComparison && (files.Length == 1 || files.Length == 2))
-                    {
-                        e.Effect = DragDropEffects.Copy; // Анализ, НС-проверка (1 файл) или сравнение (2 файла)
-                    }
-                    else
-                    {
-                        e.Effect = DragDropEffects.None;
-                    }
-                }
-                else
-                {
-                    e.Effect = DragDropEffects.None;
-                }
-            }
-            else
-            {
-                e.Effect = DragDropEffects.None;
-            }
-        }
-
-        private void MainForm_DragDrop(object sender, DragEventArgs e)
-        {
-            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            if (!files.All(f => IsSupportedExtension(Path.GetExtension(f))))
-            {
-                ShowError("Поддерживаются только файлы .py, .cpp, .cs");
-                return;
-            }
-
-            ClearResults();
-
-            if (isWaitingForSecondFileForComparison)
-            {
-                if (files.Length == 1)
-                {
-                    ProcessFileComparison(firstFileContentForCompare, firstFileNameForCompare, files[0]);
-                }
-                else
-                {
-                    ShowError("Ожидается ОДИН файл для завершения сравнения. Перетащите только второй файл.");
-                }
-            }
-            else // Не ждем второй файл
-            {
-                if (files.Length == 1)
-                {
-                    // По умолчанию Drag&Drop одного файла - это анализ
-                    // Можно добавить выбор действия, если нужно
-                    ProcessFileAsync(files[0], AnalysisAction.AnalyzeSingle);
-                }
-                else if (files.Length == 2)
-                {
-                    try
-                    {
-                        string content1 = File.ReadAllText(files[0]);
-                        if (string.IsNullOrWhiteSpace(content1))
-                        {
-                            ShowError($"Первый файл ({Path.GetFileName(files[0])}) пуст. Сравнение невозможно.");
-                            return;
-                        }
-                        firstFileContentForCompare = content1;
-                        firstFileNameForCompare = Path.GetFileName(files[0]);
-                        ProcessFileComparison(firstFileContentForCompare, firstFileNameForCompare, files[1]);
-                    }
-                    catch (Exception ex)
-                    {
-                        ShowError($"Ошибка при чтении первого файла для сравнения ({Path.GetFileName(files[0])}): {ex.Message}");
-                        ResetComparisonState();
-                    }
-                }
-            }
-        }
-
+        /// <summary>
+        /// Проверяет, является ли расширение файла поддерживаемым для анализа.
+        /// </summary>
         private bool IsSupportedExtension(string extension)
         {
             if (string.IsNullOrEmpty(extension)) return false;
             string extLower = extension.ToLower();
-            return new[] { ".py", ".cpp", ".cs" }.Contains(extLower);
+            // Добавим также расширения для C/C++, т.к. они часто идут вместе
+            return new[] { ".py", ".cs", ".cpp", ".c", ".h", ".hpp" }.Contains(extLower);
         }
+
+        /// <summary>
+        /// Обрабатывает событие, когда файлы перетаскиваются НАД формой.
+        /// Меняет курсор, если файлы можно принять.
+        /// </summary>
+        private void MainForm_DragEnter(object sender, DragEventArgs e)
+        {
+            // Проверяем, что перетаскиваются именно файлы
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                // Разрешаем операцию, если ВСЕ перетаскиваемые файлы имеют поддерживаемое расширение.
+                if (files.All(f => IsSupportedExtension(Path.GetExtension(f))))
+                {
+                    e.Effect = DragDropEffects.Copy; // Показываем пользователю, что файлы можно "скопировать" в программу
+                }
+                else
+                {
+                    e.Effect = DragDropEffects.None; // Запрещаем, если есть неподдерживаемые файлы
+                }
+            }
+            else
+            {
+                e.Effect = DragDropEffects.None; // Запрещаем, если это не файлы
+            }
+        }
+
+        /// <summary>
+        /// Обрабатывает событие, когда файлы "брошены" на форму.
+        /// Запускает соответствующий анализ в зависимости от количества файлов.
+        /// </summary>
+        private async void MainForm_DragDrop(object sender, DragEventArgs e)
+        {
+            // Получаем список файлов
+            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+
+            // Дополнительная проверка, хотя DragEnter должен был ее выполнить
+            if (files == null || !files.All(f => IsSupportedExtension(Path.GetExtension(f))))
+            {
+                ShowError("Можно перетаскивать только файлы с расширениями: .py, .cs, .cpp, .c, .h, .hpp");
+                return;
+            }
+
+            // Очищаем предыдущие результаты перед новым анализом
+            ClearResults();
+
+            if (files.Length == 1)
+            {
+                // Если бросили ОДИН файл, запускаем анализ этого файла
+                await ProcessFileAsync(files[0], AnalysisAction.AnalyzeSingle);
+            }
+            else if (files.Length >= 2)
+            {
+                // Если бросили ДВА И БОЛЕЕ файлов, запускаем их сравнение
+                await ProcessMultipleFilesComparison(files);
+            }
+            // Если бросили 0 файлов (невозможно), ничего не делаем.
+        }
+
         #endregion
 
         #region Button Click Handlers
         private async void AnalyzeButton_Click(object sender, EventArgs e)
         {
-            ResetComparisonState("Начат анализ одного файла. Операция сравнения отменена.");
             using (OpenFileDialog ofd = new OpenFileDialog())
             {
                 ofd.Filter = "Code Files (*.py;*.cs;*.cpp)|*.py;*.cs;*.cpp|All Files (*.*)|*.*";
@@ -629,62 +386,26 @@ namespace MCode
 
         private async void CompareButton_Click(object sender, EventArgs e)
         {
-            if (isWaitingForSecondFileForComparison)
+            using (OpenFileDialog ofd = new OpenFileDialog())
             {
-                ResetComparisonState("Операция сравнения отменена пользователем.");
-                return;
-            }
-
-            ClearResults();
-            using (OpenFileDialog ofd1 = new OpenFileDialog())
-            {
-                ofd1.Filter = "Code Files (*.py;*.cs;*.cpp)|*.py;*.cs;*.cpp|All Files (*.*)|*.*";
-                ofd1.Title = "Выберите ПЕРВЫЙ файл для сравнения";
-                if (ofd1.ShowDialog() != DialogResult.OK) return;
-
-                try
+                ofd.Filter = "Code Files (*.py;*.cs;*.cpp)|*.py;*.cs;*.cpp|All Files (*.*)|*.*";
+                ofd.Title = "Выберите два или более файла для сравнения";
+                ofd.Multiselect = true; // РАЗРЕШАЕМ ВЫБОР НЕСКОЛЬКИХ ФАЙЛОВ
+                if (ofd.ShowDialog() == DialogResult.OK)
                 {
-                    firstFileContentForCompare = File.ReadAllText(ofd1.FileName);
-                    firstFileNameForCompare = Path.GetFileName(ofd1.FileName);
-                    if (string.IsNullOrWhiteSpace(firstFileContentForCompare))
+                    if (ofd.FileNames.Length < 2)
                     {
-                        ShowError($"Первый файл ({firstFileNameForCompare}) пуст. Выберите другой файл.");
+                        ShowError("Для сравнения необходимо выбрать как минимум два файла.");
                         return;
                     }
-
-                    isWaitingForSecondFileForComparison = true;
-                    compareButton.Text = "Отмена (выбран 1-й файл)";
-                    compareButton.BackColor = Color.OrangeRed;
-                    SetStatus($"Первый файл: {firstFileNameForCompare}. Выберите второй файл.");
-                    AppendToRichTextBox($"Выбран первый файл: {firstFileNameForCompare}. Ожидание второго файла...", Color.Blue);
-
-                    // Сразу предлагаем выбрать второй файл
-                    using (OpenFileDialog ofd2 = new OpenFileDialog())
-                    {
-                        ofd2.Filter = ofd1.Filter;
-                        ofd2.Title = "Выберите ВТОРОЙ файл для сравнения";
-                        if (ofd2.ShowDialog() == DialogResult.OK)
-                        {
-                            ProcessFileComparison(firstFileContentForCompare, firstFileNameForCompare, ofd2.FileName);
-                        }
-                        else
-                        {
-                            // Пользователь отменил выбор второго файла, остаемся в режиме ожидания
-                            SetStatus($"Ожидание второго файла для {firstFileNameForCompare}... (или нажмите 'Отмена')");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ShowError($"Ошибка при чтении первого файла ({Path.GetFileName(ofd1.FileName)}): {ex.Message}");
-                    ResetComparisonState();
+                    ClearResults();
+                    await ProcessMultipleFilesComparison(ofd.FileNames);
                 }
             }
         }
 
         private async void CheckNNButton_Click(object sender, EventArgs e)
         {
-            ResetComparisonState("Начата проверка на заимствования. Операция сравнения отменена.");
             using (OpenFileDialog ofd = new OpenFileDialog())
             {
                 ofd.Filter = "Code Files (*.py;*.cs;*.cpp)|*.py;*.cs;*.cpp|All Files (*.*)|*.*";
@@ -701,267 +422,417 @@ namespace MCode
         #region Processing Logic
         private enum AnalysisAction { AnalyzeSingle, CheckNN }
 
+        /// <summary>
+        /// Асинхронно обрабатывает один файл для анализа или проверки на НС.
+        /// </summary>
         private async Task ProcessFileAsync(string filePath, AnalysisAction action)
         {
             string fileName = Path.GetFileName(filePath);
-            SetStatus($"Обработка файла: {fileName} ({action})...");
-            EnableButtons(false); // Блокируем кнопки на время обработки
+            SetStatus($"Обработка файла: {fileName}...");
+            EnableButtons(false);
 
             try
             {
-                string code = await Task.Run(() => File.ReadAllText(filePath)); // Асинхронное чтение файла
+                string code = await Task.Run(() => File.ReadAllText(filePath));
                 if (string.IsNullOrWhiteSpace(code))
                 {
                     ShowError($"Файл ({fileName}) пуст.");
                     SetStatus($"Файл ({fileName}) пуст. Обработка прервана.");
-                    EnableButtons(true);
                     return;
                 }
 
-                MetricResult result = null;
-                double nnSimilarity = 0;
+                // Обновляем калькулятор для языка этого файла.
+                UpdateCalculatorForFile(filePath);
 
-                // Выполняем вычисления в фоновом потоке
-                await Task.Run(() =>
-                {
-                    if (action == AnalysisAction.AnalyzeSingle)
-                    {
-                        result = analyzer.Analyze(code);
-                    }
-                    else if (action == AnalysisAction.CheckNN)
-                    {
-                        // Для CheckNN нам также могут понадобиться метрики для отображения
-                        result = analyzer.Analyze(code); // Сначала анализ
-                        nnSimilarity = analyzer.CheckNeuralNetworkSimilarity(code); // Затем специфичная проверка
-                    }
-                });
-
-                // Обновление UI в основном потоке
                 if (action == AnalysisAction.AnalyzeSingle)
                 {
+                    MetricResult result = await Task.Run(() => analyzer.Analyze(code));
                     DisplayAnalysisResults(result, fileName);
                     SetStatus($"Анализ файла {fileName} завершен.");
                 }
                 else if (action == AnalysisAction.CheckNN)
                 {
-                    DisplayNNSimilarityResult(result, nnSimilarity, fileName); // Передаем и метрики
-                    SetStatus($"Проверка на заимствования (НС) для файла {fileName} завершена.");
+                    List<string> explanation = null;
+                    double nnSimilarity = await Task.Run(() => analyzer.CheckNeuralNetworkSimilarity(code, out explanation));
+                    DisplayNNSimilarityResult(nnSimilarity, explanation, fileName);
+                    SetStatus($"Проверка на заимствования для файла {fileName} завершена.");
                 }
-            }
-            catch (NotImplementedException nie)
-            {
-                ShowError($"Функциональность для языка {languageComboBox.SelectedItem} еще не реализована: {nie.Message}");
-                SetStatus($"Ошибка: {nie.Message}");
             }
             catch (Exception ex)
             {
-                ShowError($"Ошибка при обработке файла {fileName}: {ex.Message}\n\n{ex.StackTrace}");
+                ShowError($"Ошибка при обработке файла {fileName}: {ex.Message}");
                 SetStatus($"Ошибка обработки файла {fileName}.");
             }
             finally
             {
-                EnableButtons(true); // Разблокируем кнопки
+                EnableButtons(true);
             }
         }
 
-        private async void ProcessFileComparison(string firstFileCode, string firstFileNm, string secondFilePath)
+        /// <summary>
+        /// Маршрутизатор для сравнения нескольких файлов.
+        /// Если файлов 2 - вызывает детальное сравнение.
+        /// Если файлов > 2 - вызывает построение матрицы схожести.
+        /// </summary>
+        private async Task ProcessMultipleFilesComparison(string[] filePaths)
         {
-            string secondFileName = Path.GetFileName(secondFilePath);
-            SetStatus($"Сравнение файлов: {firstFileNm} и {secondFileName}...");
+            if (filePaths.Length == 2)
+            {
+                await ProcessDetailedComparison(filePaths[0], filePaths[1]);
+            }
+            else if (filePaths.Length > 2)
+            {
+                await ProcessMatrixComparison(filePaths);
+            }
+            // Если меньше 2, то ничего не делаем (кнопка и Drag&Drop не должны этого допустить).
+        }
+
+        /// <summary>
+        /// Выполняет детальное сравнение двух файлов с объяснением.
+        /// </summary>
+        private async Task ProcessDetailedComparison(string filePath1, string filePath2)
+        {
+            SetStatus($"Детальное сравнение файлов...");
+            EnableButtons(false);
+            ClearResults();
+
+            string fileName1 = Path.GetFileName(filePath1);
+            string fileName2 = Path.GetFileName(filePath2);
+
+            try
+            {
+                string code1 = await Task.Run(() => File.ReadAllText(filePath1));
+                string code2 = await Task.Run(() => File.ReadAllText(filePath2));
+
+                UpdateCalculatorForFile(filePath1); // Настраиваем язык по первому файлу
+
+                var comparison = await Task.Run(() => analyzer.Compare(code1, code2));
+
+                DisplayDetailedComparisonResult(fileName1, fileName2, comparison);
+                SetStatus("Детальное сравнение завершено.");
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Ошибка при детальном сравнении: {ex.Message}");
+            }
+            finally
+            {
+                EnableButtons(true);
+            }
+        }
+
+        /// <summary>
+        /// Выполняет сравнение 3+ файлов и строит матрицу схожести.
+        /// </summary>
+        private async Task ProcessMatrixComparison(string[] filePaths)
+        {
+            SetStatus($"Сравнение {filePaths.Length} файлов...");
             EnableButtons(false);
             ClearResults();
 
             try
             {
-                string secondFileCode = await Task.Run(() => File.ReadAllText(secondFilePath));
-                if (string.IsNullOrWhiteSpace(secondFileCode))
+                var fileContents = new Dictionary<string, string>();
+                foreach (var path in filePaths)
                 {
-                    ShowError($"Второй файл ({secondFileName}) пуст. Сравнение невозможно.");
-                    SetStatus($"Второй файл ({secondFileName}) пуст.");
-                    EnableButtons(true);
-                    ResetComparisonState("Сравнение прервано: второй файл пуст.");
-                    return;
+                    fileContents[Path.GetFileName(path)] = await Task.Run(() => File.ReadAllText(path));
                 }
 
-                MetricResult result1 = null;
-                MetricResult result2 = null;
-                double similarity = 0;
+                UpdateCalculatorForFile(filePaths[0]); // Устанавливаем язык по первому файлу
 
-                await Task.Run(() =>
+                var similarityMatrix = new double[filePaths.Length, filePaths.Length];
+                var fileNames = filePaths.Select(Path.GetFileName).ToArray();
+
+                for (int i = 0; i < fileNames.Length; i++)
                 {
-                    result1 = analyzer.Analyze(firstFileCode);
-                    result2 = analyzer.Analyze(secondFileCode);
-                    similarity = analyzer.Compare(firstFileCode, secondFileCode); // Compare внутри тоже вызывает Analyze, но мы хотим результаты отдельно
-                });
+                    for (int j = i; j < fileNames.Length; j++)
+                    {
+                        if (i == j)
+                        {
+                            similarityMatrix[i, j] = 100.0;
+                            continue;
+                        }
 
-                DisplayComparisonResults(result1, firstFileNm, result2, secondFileName, similarity);
-                SetStatus($"Сравнение файлов {firstFileNm} и {secondFileName} завершено.");
-            }
-            catch (NotImplementedException nie)
-            {
-                ShowError($"Функциональность для языка {languageComboBox.SelectedItem} еще не реализована: {nie.Message}");
-                SetStatus($"Ошибка: {nie.Message}");
+                        string code1 = fileContents[fileNames[i]];
+                        string code2 = fileContents[fileNames[j]];
+
+                        // Используем результат Compare, но берем только процент
+                        var comparisonResult = await Task.Run(() => analyzer.Compare(code1, code2));
+                        double similarity = comparisonResult.FinalSimilarity;
+                        similarityMatrix[i, j] = similarity;
+                        similarityMatrix[j, i] = similarity;
+                    }
+                }
+
+                DisplayComparisonMatrix(fileNames, similarityMatrix);
+                SetStatus($"Сравнение {filePaths.Length} файлов завершено.");
             }
             catch (Exception ex)
             {
-                ShowError($"Ошибка при сравнении файлов: {ex.Message}\n\n{ex.StackTrace}");
-                SetStatus("Ошибка при сравнении файлов.");
+                ShowError($"Ошибка при сравнении файлов: {ex.Message}");
             }
             finally
             {
                 EnableButtons(true);
-                ResetComparisonState("Сравнение завершено или отменено."); // Сбрасываем состояние в любом случае
             }
         }
+
         #endregion
 
+        private void UpdateCalculatorForFile(string filePath)
+        {
+            string ext = Path.GetExtension(filePath).ToLower();
+            string targetLang = "";
+
+            // Определяем язык по расширению файла
+            switch (ext)
+            {
+                case ".py":
+                    targetLang = "Python";
+                    break;
+                case ".cs":
+                    targetLang = "C#";
+                    break;
+                case ".cpp":
+                case ".c":
+                case ".h":
+                case ".hpp":
+                    targetLang = "C++";
+                    break;
+            }
+
+            // Если язык был определен и он отличается от текущего выбора в ComboBox,
+            // то мы программно меняем выбор.
+            if (!string.IsNullOrEmpty(targetLang) &&
+                languageComboBox.SelectedItem?.ToString() != targetLang)
+            {
+                languageComboBox.SelectedItem = targetLang;
+                // После этого автоматически сработает событие languageComboBox.SelectedIndexChanged,
+                // которое вызовет метод UpdateCalculator(), так что вручную его вызывать не нужно.
+            }
+        }
+
         #region Display Results
+
         private void ClearResults()
         {
             richResultTextBox.Clear();
             resultsDataGridView.Rows.Clear();
+            resultsDataGridView.Columns.Clear();
+        }
+
+        private string FormatDisplayValue(double value, string format, string nanPlaceholder = "N/A")
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return nanPlaceholder;
+            return value.ToString(format);
+        }
+
+        private void AddMetricToGrid(string name, object value, string description, string format = "F2")
+        {
+            string displayValue = (value is double valD) ? FormatDisplayValue(valD, format) : value.ToString();
+            resultsDataGridView.Rows.Add(name, displayValue, description);
         }
 
         private void DisplayAnalysisResults(MetricResult result, string fileName)
         {
+            ClearResults();
+
+            resultsDataGridView.Columns.Add("MetricName", "Метрика");
+            resultsDataGridView.Columns.Add("MetricValue", "Значение");
+            resultsDataGridView.Columns.Add("MetricDescription", "Описание");
+            resultsDataGridView.Columns["MetricDescription"].FillWeight = 200;
+
             AppendToRichTextBox($"Результаты анализа для файла: {fileName}", Color.DarkBlue, true, 12);
             AppendToRichTextBox("--------------------------------------------------", Color.Gray);
 
-            // Заполнение DataGridView
-            resultsDataGridView.Rows.Clear();
-            AddMetricToGrid("Уникальные операторы (n1)", result.n1, "Число различных операторов в программе.");
-            AddMetricToGrid("Уникальные операнды (n2)", result.n2, "Число различных операндов в программе.");
-            AddMetricToGrid("Общее число операторов (N1)", result.N1, "Суммарное количество всех операторов.");
-            AddMetricToGrid("Общее число операндов (N2)", result.N2, "Суммарное количество всех операндов.");
-            AddMetricToGrid("Словарь программы (n = n1+n2)", result.n1 + result.n2, "Общее число уникальных операторов и операндов.");
-            AddMetricToGrid("Длина программы (N = N1+N2)", result.N, "Общее число всех операторов и операндов.");
-            AddMetricToGrid("Объем программы (V)", $"{result.V:F2}", "V = N * log2(n). Количество бит для представления программы.");
+            AddMetricToGrid("Словарь операторов (n1)", result.n1, "Число уникальных операторов.", "F0");
+            AddMetricToGrid("Словарь операндов (n2)", result.n2, "Число уникальных операндов.", "F0");
+            AddMetricToGrid("Общее число операторов (N1)", result.N1, "Суммарное количество всех операторов.", "F0");
+            AddMetricToGrid("Общее число операндов (N2)", result.N2, "Суммарное количество всех операндов.", "F0");
+            AddMetricToGrid("Размер словаря (n)", result.VocabularySize_n, "n = n1 + n2. Уникальные операторы и операнды.", "F0");
+            AddMetricToGrid("Длина программы (N)", result.ProgramLength_N, "N = N1 + N2. Общая длина программы.", "F0");
+            AddMetricToGrid("Объем (V)", result.Volume_V, "V = N * log2(n). Количество бит для представления программы.", "F2");
+            AddMetricToGrid("Сложность (D)", result.Difficulty_D, "D = (n1/2) * (N2/n2). Трудность понимания программы.", "F2");
+            AddMetricToGrid("Уровень (L')", result.ProgramLevel_Lprime, "L' = 1/D. Характеризует компактность программы.", "F4");
+            AddMetricToGrid("Трудоемкость кодирования (T')", result.CodingEffort_Tprime, "T' = 1/L'. Обратная к уровню.", "F2");
+            AddMetricToGrid("Усилия (E)", result.Effort_E, "E = V*D. Оценка усилий на разработку/понимание.", "F2");
 
-            string l_str = FormatMetricValue(result.L, "F4", (result.n1 == 0 || result.N2 == 0));
-            AddMetricToGrid("Уровень программы (L)", l_str, "L = (2/n1) * (n2/N2). Характеризует компактность программы.");
+            AppendToRichTextBox(result.ToString(), Color.Black);
+            AppendToRichTextBox("\nПодробные метрики с описаниями представлены на вкладке 'Метрики (таблица)'.", Color.DarkSlateGray);
 
-            string e_str = FormatMetricValue(result.E, "F2", (result.L == 0 || double.IsNaN(result.L) || double.IsInfinity(result.L)));
-            AddMetricToGrid("Трудоемкость (E)", e_str, "E = V / L. Оценка усилий на разработку.");
-            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
-            AppendToRichTextBox("Подробные метрики отображены на вкладке 'Метрики (таблица)'.", Color.DarkSlateGray);
-
-            // Вывод в RichTextBox для краткого обзора
-            AppendToRichTextBox($"n1: {result.n1}, n2: {result.n2}, N1: {result.N1}, N2: {result.N2}", Color.Black);
-            AppendToRichTextBox($"Словарь (n): {result.n1 + result.n2}, Длина (N): {result.N}", Color.Black);
-            AppendToRichTextBox($"Объем (V): {result.V:F2}", Color.Black);
-            AppendToRichTextBox($"Уровень (L): {l_str}", Color.Black);
-            AppendToRichTextBox($"Трудоемкость (E): {e_str}", Color.Black);
-
-            // Активируем вкладку с таблицей
             if (this.Controls.OfType<TabControl>().FirstOrDefault() is TabControl tc)
             {
                 tc.SelectedTab = tc.TabPages.OfType<TabPage>().FirstOrDefault(tp => tp.Text.Contains("таблица"));
             }
         }
 
-        private string FormatMetricValue(double value, string format, bool isErrorCondition)
+        private void DisplayComparisonMatrix(string[] fileNames, double[,] matrix)
         {
-            if (isErrorCondition || double.IsNaN(value) || double.IsInfinity(value))
-                return "N/A (ошибка вычисления)";
-            return value.ToString(format);
-        }
+            // Этот метод теперь тоже использует итоговую оценку из новой логики, так что он остается актуальным
+            ClearResults();
 
+            resultsDataGridView.Columns.Add("FileName", "");
+            resultsDataGridView.Columns[0].DefaultCellStyle.BackColor = this.BackColor;
+            resultsDataGridView.Columns[0].DefaultCellStyle.SelectionBackColor = this.BackColor;
+            foreach (var name in fileNames)
+            {
+                resultsDataGridView.Columns.Add(name, name);
+            }
 
-        private void AddMetricToGrid(string name, object value, string description)
-        {
-            resultsDataGridView.Rows.Add(name, value.ToString(), description);
-        }
+            for (int i = 0; i < fileNames.Length; i++)
+            {
+                var row = new DataGridViewRow();
+                row.CreateCells(resultsDataGridView);
+                row.Cells[0].Value = fileNames[i];
 
-        private void DisplayComparisonResults(MetricResult r1, string f1, MetricResult r2, string f2, double similarity)
-        {
-            AppendToRichTextBox("Результаты сравнения файлов:", Color.DarkBlue, true, 12);
-            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
-            AppendToRichTextBox($"Файл 1: {f1}", Color.DarkSlateGray, true);
-            AppendToRichTextBox($"Файл 2: {f2}", Color.DarkSlateGray, true);
-            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
+                for (int j = 0; j < fileNames.Length; j++)
+                {
+                    double similarity = matrix[i, j];
+                    row.Cells[j + 1].Value = $"{similarity:F2}%";
 
-            Color similarityColor = similarity > 75 ? Color.DarkGreen : (similarity > 40 ? Color.Orange : Color.DarkRed);
-            AppendToRichTextBox($"Схожесть по метрикам Холстеда: {similarity:F2}%", similarityColor, true, 11);
-            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
+                    Color cellColor = i == j ? Color.LightGray :
+                                      similarity >= 90 ? Color.FromArgb(255, 192, 192) :
+                                      similarity >= 75 ? Color.FromArgb(255, 224, 192) :
+                                      similarity >= 50 ? Color.FromArgb(255, 255, 192) :
+                                                         Color.FromArgb(192, 255, 192);
+                    row.Cells[j + 1].Style.BackColor = cellColor;
+                    row.Cells[j + 1].Style.SelectionBackColor = Color.CornflowerBlue;
+                }
+                resultsDataGridView.Rows.Add(row);
+            }
 
-            AppendToRichTextBox($"Метрики для файла 1 ({f1}):", Color.DarkCyan, true);
-            AppendMetricsToRichText(r1);
+            AppendToRichTextBox("Матрица схожести файлов", Color.DarkBlue, true, 12);
+            AppendToRichTextBox("В таблице показана итоговая покомпонентная схожесть для каждой пары файлов.", Color.DarkSlateGray);
 
-            AppendToRichTextBox($"Метрики для файла 2 ({f2}):", Color.DarkCyan, true);
-            AppendMetricsToRichText(r2);
-            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
-
-            // Активируем вкладку с текстовым отчетом
             if (this.Controls.OfType<TabControl>().FirstOrDefault() is TabControl tc)
             {
-                tc.SelectedTab = tc.TabPages.OfType<TabPage>().FirstOrDefault(tp => tp.Text.Contains("Текстовый отчет"));
+                tc.SelectedTab = tc.TabPages.OfType<TabPage>().FirstOrDefault(tp => tp.Text.Contains("таблица"));
             }
         }
 
-        private void AppendMetricsToRichText(MetricResult result)
+        // Этот метод теперь отображает новую, комбинированную оценку
+        private void DisplayDetailedComparisonResult(string fileName1, string fileName2, ComparisonResult comparison)
         {
-            string l_str = FormatMetricValue(result.L, "F4", (result.n1 == 0 || result.N2 == 0));
-            string e_str = FormatMetricValue(result.E, "F2", (result.L == 0 || double.IsNaN(result.L) || double.IsInfinity(result.L)));
+            ClearResults();
 
-            AppendToRichTextBox($"  n1: {result.n1}, n2: {result.n2}, N1: {result.N1}, N2: {result.N2}", Color.Black);
-            AppendToRichTextBox($"  Словарь: {result.n1 + result.n2}, Длина: {result.N}, Объем: {result.V:F2}", Color.Black);
-            AppendToRichTextBox($"  Уровень: {l_str}, Трудоемкость: {e_str}", Color.Black);
+            // Настраиваем таблицу для детального вывода
+            resultsDataGridView.Columns.Add("MetricName", "Метрика");
+            resultsDataGridView.Columns.Add("Value1", fileName1);
+            resultsDataGridView.Columns.Add("Value2", fileName2);
+            resultsDataGridView.Columns.Add("Similarity", "Схожесть компонента");
+
+            // Заполняем таблицу
+            foreach (var compSim in comparison.ComponentSimilarities)
+            {
+                var row = resultsDataGridView.Rows[resultsDataGridView.Rows.Add()];
+                row.Cells["MetricName"].Value = compSim.MetricName;
+                row.Cells["Value1"].Value = compSim.Value1;
+                row.Cells["Value2"].Value = compSim.Value2;
+
+                if (double.IsNaN(compSim.Similarity))
+                {
+                    row.Cells["Similarity"].Value = "N/A";
+                }
+                else
+                {
+                    row.Cells["Similarity"].Value = $"{compSim.Similarity:F2}%";
+                    Color cellColor = compSim.Similarity >= 90 ? Color.FromArgb(192, 255, 192) :
+                                      compSim.Similarity >= 70 ? Color.FromArgb(255, 255, 192) :
+                                                                 Color.White;
+                    row.Cells["Similarity"].Style.BackColor = cellColor;
+                }
+            }
+
+            // Формируем текстовый отчет
+            AppendToRichTextBox("Результаты детального сравнения", Color.DarkBlue, true, 12);
+            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
+
+            double finalSim = comparison.FinalSimilarity;
+            Color simColor = finalSim > 75 ? Color.DarkRed : (finalSim > 40 ? Color.DarkOrange : Color.DarkGreen);
+            AppendToRichTextBox($"Итоговая схожесть (среднее по компонентам): {finalSim:F2}%", simColor, true, 11);
+
+            AppendToRichTextBox("\nВ таблице 'Метрики' показано детальное сравнение по каждому компоненту.", Color.DarkSlateGray);
+
+
+            if (this.Controls.OfType<TabControl>().FirstOrDefault() is TabControl tc)
+            {
+                tc.SelectedTab = tc.TabPages.OfType<TabPage>().FirstOrDefault(tp => tp.Text.Contains("таблица"));
+            }
         }
 
-
-        private void DisplayNNSimilarityResult(MetricResult metrics, double nnSimilarity, string fileName)
+        private void CompareAndDisplayMetric(string metricName, double val1, double val2, string format)
         {
+            if (double.IsNaN(val1) || double.IsNaN(val2))
+            {
+                AppendToRichTextBox($"  - {metricName}: N/A (ошибка вычисления)", Color.Gray);
+                return;
+            }
+
+            double maxVal = Math.Max(Math.Abs(val1), Math.Abs(val2));
+            double diff = (maxVal == 0) ? 0 : Math.Abs(val1 - val2) / maxVal;
+
+            Color diffColor = (diff < 0.1) ? Color.DarkGreen : ((diff < 0.3) ? Color.DarkOrange : Color.DarkRed);
+            string explanation = (diff < 0.1) ? "почти идентичны" : ((diff < 0.3) ? "схожи" : "сильно различаются");
+
+            string val1Str = val1.ToString(format);
+            string val2Str = val2.ToString(format);
+
+            AppendToRichTextBox($"  - {metricName}: {val1Str} vs {val2Str}", Color.Black);
+            AppendToRichTextBox($"    Разница: {(diff * 100):F1}% ({explanation})", diffColor);
+        }
+
+        private void DisplayNNSimilarityResult(double nnSimilarity, List<string> explanation, string fileName)
+        {
+            ClearResults();
+
             AppendToRichTextBox($"Результаты проверки на заимствования из НС для файла: {fileName}", Color.DarkBlue, true, 12);
             AppendToRichTextBox("--------------------------------------------------", Color.Gray);
 
-            Color nnColor = nnSimilarity >= 70 ? Color.DarkRed : (nnSimilarity >= 30 ? Color.Orange : Color.DarkGreen);
-            string nnComment;
-            if (nnSimilarity >= 70) nnComment = "Высокая вероятность заимствования.";
-            else if (nnSimilarity >= 30) nnComment = "Средняя вероятность заимствования.";
-            else nnComment = "Низкая вероятность заимствования на основе текущих эвристик.";
+            Color nnColor = nnSimilarity >= 70 ? Color.DarkRed : (nnSimilarity >= 40 ? Color.DarkOrange : Color.DarkGreen);
+            string nnComment = nnSimilarity >= 70 ? "Высокая вероятность заимствования." :
+                               nnSimilarity >= 40 ? "Средняя вероятность заимствования." :
+                                                    "Низкая вероятность заимствования на основе текущих эвристик.";
 
-            AppendToRichTextBox($"Вероятность заимствования из нейронных сетей: {nnSimilarity:F2}%", nnColor, true, 11);
+            AppendToRichTextBox($"Вероятность заимствования: {nnSimilarity:F2}%", nnColor, true, 11);
             AppendToRichTextBox($"Комментарий: {nnComment}", nnColor);
             AppendToRichTextBox("--------------------------------------------------", Color.Gray);
-            AppendToRichTextBox("Примененная эвристика (пример):", Color.DarkSlateGray);
-            AppendToRichTextBox("  - Высокая вероятность: Уровень L > 0.9 И Трудоемкость E < 10", Color.DimGray);
-            AppendToRichTextBox("  - Средняя вероятность: Уровень L > 0.8 И Трудоемкость E < 20", Color.DimGray);
-            AppendToRichTextBox("Метрики файла:", Color.DarkSlateGray, true);
-            AppendMetricsToRichText(metrics); // Показываем метрики, на основе которых сделан вывод
-            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
+            AppendToRichTextBox("Обоснование оценки:", Color.DarkSlateGray, true);
 
-            // Активируем вкладку с текстовым отчетом
+            foreach (var line in explanation)
+            {
+                Color lineColor = line.StartsWith("[+]") ? Color.IndianRed : Color.DimGray;
+                if (line.StartsWith("---")) lineColor = Color.Gray;
+
+                AppendToRichTextBox($"  {line}", lineColor);
+            }
+
+            AppendToRichTextBox("--------------------------------------------------", Color.Gray);
+            AppendToRichTextBox("Примечание: Данная оценка является эвристической.", Color.Gray, false, 8);
+
             if (this.Controls.OfType<TabControl>().FirstOrDefault() is TabControl tc)
             {
                 tc.SelectedTab = tc.TabPages.OfType<TabPage>().FirstOrDefault(tp => tp.Text.Contains("Текстовый отчет"));
             }
         }
-
 
         private void AppendToRichTextBox(string text, Color color, bool bold = false, float? fontSize = null)
         {
             richResultTextBox.SelectionStart = richResultTextBox.TextLength;
             richResultTextBox.SelectionLength = 0;
 
-            Font originalFont = richResultTextBox.SelectionFont ?? richResultTextBox.Font;
+            Font originalFont = richResultTextBox.Font;
             FontStyle style = bold ? FontStyle.Bold : FontStyle.Regular;
 
-            // Если нужно изменить и жирность и размер
-            if (fontSize.HasValue)
-            {
-                richResultTextBox.SelectionFont = new Font(originalFont.FontFamily, fontSize.Value, style);
-            }
-            else // Если только жирность
-            {
-                richResultTextBox.SelectionFont = new Font(originalFont, style);
-            }
-
+            richResultTextBox.SelectionFont = new Font(originalFont.FontFamily, fontSize ?? originalFont.Size, style);
             richResultTextBox.SelectionColor = color;
             richResultTextBox.AppendText(text + Environment.NewLine);
-            richResultTextBox.SelectionColor = richResultTextBox.ForeColor; // Вернуть стандартный цвет
-            richResultTextBox.SelectionFont = originalFont; // Вернуть стандартный шрифт
+
+            richResultTextBox.SelectionFont = originalFont;
+            richResultTextBox.SelectionColor = richResultTextBox.ForeColor;
             richResultTextBox.ScrollToCaret();
         }
+
         #endregion
 
         #region Helpers

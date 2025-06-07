@@ -14,7 +14,7 @@ namespace MCode
         private HashSet<string> _operands = new HashSet<string>();
         private int _N1, _N2; // Total counts
 
-        // Более полный список ключевых слов, которые обычно считаются операторами в Холстеде
+        //Список ключевых слов, которые обычно считаются операторами в Холстеде
         private static readonly HashSet<SyntaxKind> HalsteadKeywordOperators = new HashSet<SyntaxKind>
         {
             SyntaxKind.IfKeyword, SyntaxKind.ElseKeyword, SyntaxKind.SwitchKeyword, SyntaxKind.CaseKeyword,

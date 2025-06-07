@@ -16,17 +16,10 @@ PYTHON_OPERATORS_KEYWORDS = {
     '<', '>', '<=', '>=', '==', '!=', '=',
     '+=', '-=', '*=', '/=', '//=', '%=', '@=', '&=', '|=', '^=', '>>=', '<<=', '**=',
     # Логические и принадлежности
-    'and', 'or', 'not', 'is', 'in',
-    # Скобки, разделители и пр. (некоторые из них обрабатываются структурой AST, а не как отдельные токены)
-    # '( )', '[ ]', '{ }', ',', ':', '.', ';', '->', '...', # Эти скорее часть структуры, чем операторы
-    # Ключевые слова, часто считаемые операторами
-    'if', 'else', 'elif', 'while', 'for', 'try', 'except', 'finally', 'with', 'as',
-    'def', 'class', 'return', 'yield', 'lambda', 'import', 'from', 'pass',
-    'break', 'continue', 'global', 'nonlocal', 'assert', 'del', 'raise',
-    'await', 'async' # Для асинхронного кода
+    'and', 'or', 'not', 'is', 'in', 'await'
 }
 # Добавляем операторы из описания проекта: !, <> (хотя <> устарел, == != предпочтительнее)
-PYTHON_OPERATORS_KEYWORDS.update(['!']) # '!' обычно часть '!=' или 'not'
+PYTHON_OPERATORS_KEYWORDS.update(['()', '[]', '.']) 
 
 
 class HalsteadMetricsVisitor(ast.NodeVisitor):
@@ -171,30 +164,6 @@ class HalsteadMetricsVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     # Ключевые слова как операторы
-    def visit_If(self, node): self._add_operator('if'); self.generic_visit(node)
-    def visit_For(self, node): self._add_operator('for'); self.generic_visit(node)
-    def visit_While(self, node): self._add_operator('while'); self.generic_visit(node)
-    def visit_Try(self, node): self._add_operator('try'); self.generic_visit(node)
-    def visit_ExceptHandler(self, node): self._add_operator('except'); self.generic_visit(node)
-    def visit_Finally(self, node): self._add_operator('finally'); self.generic_visit(node) # Не узел, а часть Try
-    def visit_With(self, node): self._add_operator('with'); self.generic_visit(node)
-    def visit_FunctionDef(self, node): self._add_operator('def'); self.generic_visit(node)
-    def visit_AsyncFunctionDef(self, node): self._add_operator('async def'); self.generic_visit(node)
-    def visit_ClassDef(self, node): self._add_operator('class'); self.generic_visit(node)
-    def visit_Return(self, node): self._add_operator('return'); self.generic_visit(node)
-    def visit_Yield(self, node): self._add_operator('yield'); self.generic_visit(node)
-    def visit_YieldFrom(self, node): self._add_operator('yield from'); self.generic_visit(node)
-    def visit_Lambda(self, node): self._add_operator('lambda'); self.generic_visit(node)
-    def visit_Import(self, node): self._add_operator('import'); self.generic_visit(node)
-    def visit_ImportFrom(self, node): self._add_operator('from'); self.generic_visit(node) # 'import' также будет в именах
-    def visit_Pass(self, node): self._add_operator('pass'); self.generic_visit(node)
-    def visit_Break(self, node): self._add_operator('break'); self.generic_visit(node)
-    def visit_Continue(self, node): self._add_operator('continue'); self.generic_visit(node)
-    def visit_Global(self, node): self._add_operator('global'); self.generic_visit(node)
-    def visit_Nonlocal(self, node): self._add_operator('nonlocal'); self.generic_visit(node)
-    def visit_Assert(self, node): self._add_operator('assert'); self.generic_visit(node)
-    def visit_Delete(self, node): self._add_operator('del'); self.generic_visit(node)
-    def visit_Raise(self, node): self._add_operator('raise'); self.generic_visit(node)
     def visit_Await(self, node): self._add_operator('await'); self.generic_visit(node)
     
     # Для f-строк (Python 3.6+)
