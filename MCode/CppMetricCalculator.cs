@@ -7,27 +7,63 @@ namespace MCode
 {
     public class CppMetricCalculator : IMetricCalculator
     {
-        // Базовый набор C++ операторов. Можно и нужно расширять.
-        // Этот список очень упрощен и не учитывает контекст.
-        private static readonly HashSet<string> CppOperators = new HashSet<string>
+        // --- Списки операторов и ключевых слов ---
+        // ПРИМЕЧАНИЕ: Эти списки не являются исчерпывающими и могут требовать доработки.
+        // Точность regex-парсера для C++ очень ограничена.
+
+        // Символьные операторы (сортируем по убыванию длины для более жадного совпадения)
+        private static readonly List<string> OrderedSymbolicOperators = new List<string>
         {
-            "+", "-", "*", "/", "%", "++", "--",
-            "==", "!=", ">", "<", ">=", "<=",
-            "&&", "||", "!",
-            "&", "|", "^", "~", "<<", ">>",
-            "=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=",
-            "->", ".", "::", "?", ":", ",", "sizeof", "new", "delete", 
+            // Трехсимвольные
+            ">>=", "<<=", "->*", "...",
+            // Двухсимвольные
+            "++", "--", "->", ".*", "::",
+            "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>",
+            "==", "!=", ">=", "<=", "&&", "||",
+            // Односимвольные (должны идти после более длинных, чтобы не перекрывать)
+            "+", "-", "*", "/", "%", "&", "|", "^", "~", "!", "=", ">", "<",
+            ".", ",", "?", ":",
+            // Скобки как операторы (очень спорно и сложно для regex, но для примера)
+            // "(", ")", "[", "]", "{", "}" // Обычно не считаются так просто
+        }.OrderByDescending(s => s.Length).ToList();
+
+        // Ключевые слова, которые считаются операторами
+        private static readonly HashSet<string> KeywordOperators = new HashSet<string>
+        {
+            "if", "else", "switch", "case", "default", "for", "while", "do", "return", "break",
+            "continue", "goto", "try", "catch", "throw",
+            "new", "delete", "sizeof", "alignof", "typeid", "noexcept",
+            "static_cast", "dynamic_cast", "const_cast", "reinterpret_cast",
+            "template", "typename", "using", "namespace", "class", "struct", "union", "enum",
+            // "operator", // при объявлении operator X
+            "co_await", "co_return", "co_yield", "requires", "concept",
+            // Модификаторы, которые иногда включают в операторы (зависит от интерпретации Холстеда)
+            "const", "static", "virtual", "inline", "explicit", "export", "friend", "mutable", "volatile", "extern"
         };
 
-        // Регулярное выражение для поиска идентификаторов (операндов)
-        // (начинается с буквы или _, за которым следуют буквы, цифры или _)
-        private static readonly Regex OperandRegex = new Regex(@"\b[a-zA-Z_][a-zA-Z0-9_]*\b", RegexOptions.Compiled);
+        // Ключевые слова, которые НЕ являются операторами (в основном типы и другие конструкции)
+        // и не должны считаться операндами, если это просто ключевое слово.
+        private static readonly HashSet<string> NonOperatorKeywords = new HashSet<string>
+        {
+            "alignas", "asm", "auto", "bool", "char", "char8_t", "char16_t", "char32_t",
+            "compl", "consteval", "constexpr", "constinit", "decltype",
+            "double", "false", "float", "int", "long", "nullptr",
+            "private", "protected", "public", "register",
+            "short", "signed", "static_assert", "this", "thread_local", "true",
+            "typedef", "unsigned", "void", "wchar_t"
+            // Пользовательские типы (MyClass) будут операндами, если не попадут сюда.
+        };
 
-        // Регулярное выражение для поиска числовых литералов (операндов)
-        private static readonly Regex NumericLiteralRegex = new Regex(@"\b\d+(\.\d*)?([eE][+-]?\d+)?\b", RegexOptions.Compiled);
-
-        // Регулярное выражение для строковых и символьных литералов (операндов)
-        private static readonly Regex StringCharLiteralRegex = new Regex(@"""(\\.|[^""\\])*""|'(\\.|[^'\\])*'", RegexOptions.Compiled);
+        // --- Регулярные выражения ---
+        // Для идентификаторов (потенциальные операнды или ключевые слова)
+        private static readonly Regex IdentifierAndKeywordRegex = new Regex(@"\b[a-zA-Z_][a-zA-Z0-9_]*\b", RegexOptions.Compiled);
+        // Для числовых литералов (включая различные суффиксы и экспоненты)
+        private static readonly Regex NumericLiteralRegex = new Regex(@"\b((0[xX][0-9a-fA-F]+)|(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?)([uUlL]{0,3})\b", RegexOptions.Compiled);
+        // Для строковых и символьных литералов (включая префиксы и экранирование)
+        private static readonly Regex StringCharLiteralRegex = new Regex(@"(L|u|U|u8)?(""(\\.|[^""\\])*""|'(\\.|[^'\\])*')", RegexOptions.Compiled);
+        // Для "остальных" непустых символов, которые могут быть операторами, не пойманными ранее
+        // (например, одиночные скобки, если мы решим их считать операторами)
+        // private static readonly Regex PunctuationRegex = new Regex(@"[^\s\w]+", RegexOptions.Compiled);
 
 
         private HashSet<string> _foundOperators;
@@ -42,56 +78,62 @@ namespace MCode
             _N1 = 0;
             _N2 = 0;
 
-            // 1. Удалить комментарии (очень упрощенно)
-            sourceCode = Regex.Replace(sourceCode, @"//.*?\n", "\n"); // Однострочные комментарии
+            // 1. Предварительная обработка: удаление комментариев и директив препроцессора
+            // Это очень грубо и может сломать код (например, комментарии внутри строк или макросов)
+            sourceCode = Regex.Replace(sourceCode, @"//.*?\n", "\n");      // Однострочные комментарии
             sourceCode = Regex.Replace(sourceCode, @"/\*.*?\*/", "", RegexOptions.Singleline); // Многострочные комментарии
+            sourceCode = Regex.Replace(sourceCode, @"#.*?\n", "\n");        // Директивы препроцессора (очень грубо)
 
-            // 2. Удалить препроцессорные директивы (очень упрощенно)
-            sourceCode = Regex.Replace(sourceCode, @"#.*?\n", "\n");
+            // 2. Этап "токенизации" (очень упрощенный)
+            // Создаем одно большое регулярное выражение, чтобы попытаться разбить код на потенциальные токены
+            // Порядок важен: сначала более специфичные (литералы, идентификаторы), потом общие операторы
+            string combinedPattern = string.Join("|",
+                NumericLiteralRegex.ToString(),     // Числа
+                StringCharLiteralRegex.ToString(),  // Строки/символы
+                IdentifierAndKeywordRegex.ToString(),// Идентификаторы/ключевые слова
+                string.Join("|", OrderedSymbolicOperators.Select(Regex.Escape)) // Символьные операторы
+                                                                                // PunctuationRegex.ToString() // Если хотим ловить все остальное
+            );
 
+            Regex tokenizer = new Regex(combinedPattern, RegexOptions.ExplicitCapture); // ExplicitCapture для неименованных групп
 
-            // 3. Поиск операторов (сначала более длинные, чтобы избежать частичного совпадения, например "<<" перед "<")
-            // Этот подход очень грубый и может давать много ложных срабатываний или пропусков.
-            var sortedOperators = CppOperators.OrderByDescending(op => op.Length).ToList();
-
-            // Собираем все символьные операторы в одно регулярное выражение
-            // Экранируем специальные символы regex
-            string operatorPattern = string.Join("|", sortedOperators.Select(Regex.Escape));
-            Regex operatorRegex = new Regex(operatorPattern);
-
-            foreach (Match match in operatorRegex.Matches(sourceCode))
+            foreach (Match match in tokenizer.Matches(sourceCode))
             {
-                _foundOperators.Add(match.Value);
-                _N1++;
-            }
+                string token = match.Value;
+                if (string.IsNullOrWhiteSpace(token)) continue;
 
-            // "Заглушка" для кода, обработанного операторами, чтобы не считать их части операндами
-            // Это очень грубо и неэффективно для больших файлов.
-            // string codeWithoutSymbolicOperators = operatorRegex.Replace(sourceCode, " ");
-
-            // 4. Поиск операндов (идентификаторы и литералы)
-            // Идентификаторы
-            foreach (Match match in OperandRegex.Matches(sourceCode))
-            {
-                string value = match.Value;
-                // Простая проверка, чтобы не считать ключевые слова C++ операндами (список неполный)
-                if (!IsCppKeyword(value) && !_foundOperators.Contains(value) /* Очень грубая проверка, чтобы не считать уже найденные операторы-символы операндами */)
+                // 3. Классификация токена
+                if (OrderedSymbolicOperators.Contains(token)) // Проверяем, не символьный ли это оператор
                 {
-                    _foundOperands.Add(value);
+                    _foundOperators.Add(token);
+                    _N1++;
+                }
+                else if (KeywordOperators.Contains(token)) // Проверяем, не ключевое ли это слово-оператор
+                {
+                    _foundOperators.Add(token);
+                    _N1++;
+                }
+                else if (IdentifierAndKeywordRegex.IsMatch(token) && // Если это идентификатор
+                         !NonOperatorKeywords.Contains(token) &&    // И не "неоператорное" ключевое слово
+                         !KeywordOperators.Contains(token) &&       // И не ключевое слово-оператор (двойная проверка)
+                         !OrderedSymbolicOperators.Contains(token)) // И не символьный оператор (если вдруг имя совпало)
+                {
+                    _foundOperands.Add(token);
                     _N2++;
                 }
-            }
-            // Числовые литералы
-            foreach (Match match in NumericLiteralRegex.Matches(sourceCode))
-            {
-                _foundOperands.Add(match.Value);
-                _N2++;
-            }
-            // Строковые и символьные литералы
-            foreach (Match match in StringCharLiteralRegex.Matches(sourceCode))
-            {
-                _foundOperands.Add(match.Value);
-                _N2++;
+                else if (NumericLiteralRegex.IsMatch(token) || StringCharLiteralRegex.IsMatch(token)) // Если это числовой или строковый литерал
+                {
+                    // Проверяем, чтобы это не было просто частью идентификатора (например, имя переменной `string1`)
+                    // Предыдущие проверки на Identifiers должны были отсеять это, но для надежности
+                    // Условие `match.Groups[..].Success` из вашего предыдущего кода было бы полезно, если бы группы были именованные и четко разделяли типы.
+                    // В текущем combinedPattern это сложнее.
+                    // Будем считать, что если Regex.IsMatch сработал, то это литерал.
+                    _foundOperands.Add(token);
+                    _N2++;
+                }
+                // Остальные токены (например, одиночные скобки, если бы мы их добавили в PunctuationRegex и не в OrderedSymbolicOperators)
+                // можно либо игнорировать, либо пытаться классифицировать.
+                // Для упрощения, если токен не подошел ни под одну категорию выше, мы его игнорируем.
             }
         }
 
@@ -108,30 +150,6 @@ namespace MCode
                 n1 = _foundOperators.Count,
                 n2 = _foundOperands.Count
             };
-        }
-
-        // Очень упрощенный список ключевых слов C++, чтобы не считать их операндами
-        private static readonly HashSet<string> CppKeywords = new HashSet<string>
-        {
-            "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
-            "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
-            "class", "compl", "concept", "const", "consteval", "constexpr", "constinit",
-            "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype",
-            "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
-            "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
-            "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept",
-            "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected",
-            "public", "register", "reinterpret_cast", "requires", "return", "short",
-            "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
-            "switch", "template", "this", "thread_local", "throw", "true", "try",
-            "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual",
-            "void", "volatile", "wchar_t", "while", "xor", "xor_eq"
-            // Добавьте стандартные макросы или типы из библиотек, если их нужно исключать
-        };
-
-        private bool IsCppKeyword(string value)
-        {
-            return CppKeywords.Contains(value);
         }
     }
 }

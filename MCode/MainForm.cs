@@ -9,6 +9,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using ClosedXML.Excel;
+using System.Diagnostics;
 
 namespace MCode
 {
@@ -18,8 +20,12 @@ namespace MCode
         private Button analyzeButton;
         private Button compareButton;
         private Button checkNNButton;
+        private Button exportToExcelButton;
+        private Button helpButton;
         private TextBox resultTextBox; 
         private ToolStripStatusLabel statusLabel; // Для отображения статуса
+        private HelpProvider helpProvider; // Компонент для управления справкой
+        private const string HelpFileName = "MCode_Help.chm"; // Имя файла справки
 
         private IMetricCalculator calculator;
         private MetricAnalyzer analyzer;
@@ -37,9 +43,22 @@ namespace MCode
 
         public MainForm()
         {
+            InitializeHelpProvider();
             InitializeComponent();
             InitializeCustomComponents(); // Для DataGridView и RichTextBox
             UpdateCalculator(); // Первичная инициализация
+        }
+
+        private void InitializeHelpProvider()
+        {
+            helpProvider = new HelpProvider();
+            // Указываем файл справки. Предполагается, что он будет в той же папке, что и exe.
+            // Если он в другом месте, укажите полный или относительный путь.
+            helpProvider.HelpNamespace = Path.Combine(Application.StartupPath, HelpFileName);
+
+            // Включаем предпросмотр нажатия клавиш для формы, чтобы ловить F1
+            this.KeyPreview = true;
+            this.KeyDown += MainForm_KeyDown; // Обработчик нажатия клавиш
         }
 
         private void InitializeComponent()
@@ -120,13 +139,43 @@ namespace MCode
             analyzeButton.Click += AnalyzeButton_Click;
             buttonsPanel.Controls.Add(analyzeButton);
 
+            helpProvider.SetHelpKeyword(analyzeButton, "analyze_file.htm"); 
+            helpProvider.SetHelpNavigator(analyzeButton, HelpNavigator.Topic);
+            helpProvider.SetShowHelp(analyzeButton, true); // Если хотите, чтобы HelpProvider сам обрабатывал F1 для кнопки
+
             compareButton = CreateStyledButton("Сравнить файлы на плагиат", Color.FromArgb(60, 179, 113), 200); // MediumSeaGreen
             compareButton.Click += CompareButton_Click;
             buttonsPanel.Controls.Add(compareButton);
 
+            helpProvider.SetHelpKeyword(compareButton, "compare_files.htm");
+            helpProvider.SetHelpNavigator(compareButton, HelpNavigator.Topic);
+
             checkNNButton = CreateStyledButton("Проверка на заимствования (НС)", Color.FromArgb(255, 50, 71), 240); // Tomato
             checkNNButton.Click += CheckNNButton_Click;
             buttonsPanel.Controls.Add(checkNNButton);
+
+            helpProvider.SetHelpKeyword(checkNNButton, "check_nn.htm");
+            helpProvider.SetHelpNavigator(checkNNButton, HelpNavigator.Topic);
+
+            exportToExcelButton = CreateStyledButton("Экспорт в Excel", Color.FromArgb(34, 139, 34), 160); // ForestGreen
+            exportToExcelButton.Click += ExportToExcelButton_Click; // Добавляем обработчик
+            buttonsPanel.Controls.Add(exportToExcelButton);
+
+            helpProvider.SetHelpKeyword(exportToExcelButton, "export_excel.htm");
+            helpProvider.SetHelpNavigator(exportToExcelButton, HelpNavigator.Topic);
+
+            helpButton = CreateStyledButton("Помощь", Color.FromArgb(0, 120, 215), 120); // Синий цвет
+            helpButton.Click += HelpButton_Click;
+            buttonsPanel.Controls.Add(helpButton);
+
+            helpProvider.SetHelpKeyword(languageComboBox, "select_language.htm");
+            helpProvider.SetHelpNavigator(languageComboBox, HelpNavigator.Topic);
+
+            //helpProvider.SetHelpKeyword(richResultTextBox, "results_text.htm");
+            //helpProvider.SetHelpNavigator(richResultTextBox, HelpNavigator.Topic);
+
+            //helpProvider.SetHelpKeyword(resultsDataGridView, "results_table.htm");
+            //helpProvider.SetHelpNavigator(resultsDataGridView, HelpNavigator.Topic);
 
             // Статус бар внизу
             StatusStrip statusStrip = new StatusStrip();
@@ -417,7 +466,181 @@ namespace MCode
                 }
             }
         }
+
+        private async void ExportToExcelButton_Click(object sender, EventArgs e)
+        {
+            if (resultsDataGridView.Rows.Count == 0 && resultsDataGridView.Columns.Count == 0)
+            {
+                MessageBox.Show("Нет данных для экспорта. Сначала выполните анализ или сравнение.", "Экспорт в Excel", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (SaveFileDialog sfd = new SaveFileDialog())
+            {
+                sfd.Filter = "Excel Workbook (*.xlsx)|*.xlsx";
+                sfd.Title = "Сохранить как Excel файл";
+                sfd.FileName = "MCode_Analysis_Results.xlsx"; // Имя файла по умолчанию
+
+                if (sfd.ShowDialog() == DialogResult.OK)
+                {
+                    SetStatus("Экспорт данных в Excel...");
+                    EnableButtons(false); // Блокируем кнопки на время экспорта
+                    exportToExcelButton.Enabled = false;
+
+                    try
+                    {
+                        // Выполняем экспорт в фоновом потоке, чтобы UI не зависал
+                        await Task.Run(() => ExportDataGridViewToExcel(resultsDataGridView, sfd.FileName));
+                        SetStatus("Данные успешно экспортированы в " + Path.GetFileName(sfd.FileName));
+                        MessageBox.Show("Данные успешно экспортированы!", "Экспорт в Excel", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowError($"Ошибка при экспорте в Excel: {ex.Message}");
+                        SetStatus("Ошибка экспорта в Excel.");
+                    }
+                    finally
+                    {
+                        EnableButtons(true); // Разблокируем кнопки
+                        exportToExcelButton.Enabled = true;
+                    }
+                }
+            }
+        }
+
+        private void ExportDataGridViewToExcel(DataGridView dgv, string filePath)
+        {
+            using (var workbook = new XLWorkbook())
+            {
+                var worksheet = workbook.Worksheets.Add("Результаты анализа");
+
+                // Заголовки столбцов
+                for (int i = 0; i < dgv.Columns.Count; i++)
+                {
+                    // Используем HeaderText, если он есть, иначе Name
+                    string headerText = string.IsNullOrEmpty(dgv.Columns[i].HeaderText) ? dgv.Columns[i].Name : dgv.Columns[i].HeaderText;
+                    worksheet.Cell(1, i + 1).Value = headerText;
+                    worksheet.Cell(1, i + 1).Style.Font.Bold = true;
+                    worksheet.Cell(1, i + 1).Style.Fill.BackgroundColor = XLColor.LightGray; // Цвет фона для заголовков
+                    worksheet.Cell(1, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                }
+
+                // Данные
+                for (int i = 0; i < dgv.Rows.Count; i++)
+                {
+                    for (int j = 0; j < dgv.Columns.Count; j++)
+                    {
+                        var cellValue = dgv.Rows[i].Cells[j].Value;
+                        // ClosedXML попытается определить тип данных сам.
+                        // Если значение null, оставляем ячейку пустой.
+                        worksheet.Cell(i + 2, j + 1).Value = cellValue?.ToString() ?? ""; // Преобразуем в строку, если не null
+                        worksheet.Cell(i + 2, j + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+                        // Попытка применить цвет фона из DataGridView (если есть)
+                        // Это базовая попытка, может не всегда работать идеально для всех стилей
+                        Color cellBackColor = dgv.Rows[i].Cells[j].Style.BackColor;
+                        if (!cellBackColor.IsEmpty && cellBackColor != dgv.DefaultCellStyle.BackColor && cellBackColor != dgv.BackgroundColor)
+                        {
+                            try
+                            {
+                                worksheet.Cell(i + 2, j + 1).Style.Fill.BackgroundColor = XLColor.FromColor(cellBackColor);
+                            }
+                            catch (Exception) { /* Некоторые системные цвета могут не конвертироваться, игнорируем */ }
+                        }
+                    }
+                }
+
+                // Автоподбор ширины столбцов
+                worksheet.Columns().AdjustToContents();
+
+                workbook.SaveAs(filePath);
+            }
+        }
+
+        private void HelpButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Открываем главную страницу файла справки
+                Help.ShowHelp(this, helpProvider.HelpNamespace); // [3, 7, 10, 14, 15]
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Не удалось открыть файл справки '{helpProvider.HelpNamespace}'.\nОшибка: {ex.Message}");
+            }
+        }
         #endregion
+
+        #region Help Handling (F1)
+        private void MainForm_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.F1)
+            {
+                // Определяем, какой контрол имеет фокус
+                Control focusedControl = this.ActiveControl;
+                string helpTopicKeyword = null;
+
+                if (focusedControl != null)
+                {
+                    // Пытаемся получить HelpKeyword, установленный через HelpProvider
+                    helpTopicKeyword = helpProvider.GetHelpKeyword(focusedControl); // [7, 10, 16]
+                    // Если для контрола не задан HelpKeyword, можно попробовать определить контекст по имени или Tag
+                    if (string.IsNullOrEmpty(helpTopicKeyword))
+                    {
+                        helpTopicKeyword = GetContextHelpKeyword(focusedControl);
+                    }
+                }
+
+                // Если контекст не определен для конкретного контрола, показываем общую справку или справку для формы
+                if (string.IsNullOrEmpty(helpTopicKeyword))
+                {
+                    helpTopicKeyword = "main_window.htm"; // ID/имя файла для главной страницы или общего раздела
+                }
+
+                try
+                {
+                    Help.ShowHelp(this, helpProvider.HelpNamespace, HelpNavigator.Topic, helpTopicKeyword); // [7, 10, 14, 16, 18]
+                    e.Handled = true; // Сообщаем, что обработали нажатие F1
+                }
+                catch (Exception ex)
+                {
+                    ShowError($"Не удалось открыть раздел справки '{helpTopicKeyword}' в файле '{helpProvider.HelpNamespace}'.\nОшибка: {ex.Message}");
+                }
+            }
+        }
+
+        // Вспомогательный метод для определения контекстного ключевого слова (если не используется HelpProvider.GetHelpKeyword)
+        private string GetContextHelpKeyword(Control control)
+        {
+            if (control == null) return null;
+
+            // Пример: можно использовать свойство Tag или Name контрола
+            if (control.Tag is string tagKeyword && !string.IsNullOrEmpty(tagKeyword))
+            {
+                return tagKeyword;
+            }
+
+            // Можно добавить более сложную логику определения контекста
+            // Например, по имени контрола или по текущему состоянию программы
+            switch (control.Name)
+            {
+                // Если вы не хотите использовать SetHelpKeyword для каждого контрола,
+                // можно здесь сопоставить имена контролов с ID тем:
+                // case "analyzeButton": return "analyze_file.htm";
+                // case "languageComboBox": return "select_language.htm";
+                default:
+                    // Если контрол находится на одной из вкладок TabControl
+                    if (control.Parent is TabPage)
+                    {
+                        if (control.Parent.Text.Contains("Текстовый отчет")) return "results_text.htm";
+                        if (control.Parent.Text.Contains("Метрики (таблица)")) return "results_table.htm";
+                    }
+                    return null; // или "default_topic.htm"
+            }
+        }
+
+        #endregion // Help Handling (F1)
+
 
         #region Processing Logic
         private enum AnalysisAction { AnalyzeSingle, CheckNN }
