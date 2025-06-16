@@ -44,6 +44,7 @@ namespace MCode
 
             var comparison = new ComparisonResult();
 
+
             // Сравниваем каждую метрику индивидуально
             comparison.ComponentSimilarities.Add(
                 CalculateComponentSimilarity("Словарь операторов (n1)", r1.n1, r2.n1, useLog: false, format: "F0"));
@@ -130,6 +131,7 @@ namespace MCode
             MetricResult result = Analyze(sourceCode);
             explanation = new List<string>();
             double score = 0.0;
+            const double MaxScorePerRule = 30.0; // Ограничим максимальный вклад от одного правила
 
             // --- КАЛИБРОВКА ПОРОГОВ ---
             // Эвристика 1: "Плоский", простой код. Высокий уровень L' и низкая сложность D.
@@ -180,18 +182,38 @@ namespace MCode
             }
 
 
-            // Добавим базовые 10 очков, если хоть что-то сработало
-            if (score > 0)
+            // Эвристика 4: (Новая) Очень мало уникальных операторов n1 по сравнению с общим N1
+            // Это может указывать на монотонное использование одних и тех же конструкций
+            if (result.n1 > 0 && result.N1 > 20)
             {
-                score += 10;
+                double operatorUsageRatio = (double)result.N1 / result.n1; // Как часто в среднем используется каждый уникальный оператор
+                if (operatorUsageRatio > 7.0) // Например, каждый уникальный оператор используется 7+ раз
+                {
+                    double currentScore = MaxScorePerRule * 0.7 * Math.Min(1.0, (operatorUsageRatio - 7.0) / 10.0);
+                    score += currentScore;
+                    explanation.Add($"[+] Частое повторное использование операторов (N1/n1 Ratio={operatorUsageRatio:F2}) -> (+{currentScore:F0} очков)");
+                }
+                else
+                {
+                    explanation.Add($"[ ] Использование операторов разнообразно (N1/n1 Ratio={operatorUsageRatio:F2})");
+                }
             }
 
-            // Для отладки добавим сами значения метрик в конец объяснения
+
+            // Итоговый балл (ограничиваем сверху)
+            double finalScore = Math.Min(95.0, score); // Оставляем небольшой люфт до 100%
+
+            // Если есть хоть какие-то признаки, добавляем небольшой базовый балл, чтобы не было 0% при наличии подозрений
+            if (finalScore > 0 && finalScore < 10) finalScore = 10;
+            else if (finalScore == 0 && result.ProgramLength_N > 10) finalScore = 5; // Минимальный балл для непустых файлов
+
+
             explanation.Add("---");
             explanation.Add("Сырые значения метрик:");
-            explanation.Add(result.ToString().Replace("\n", " | "));
+            explanation.Add($"n1={result.n1}, n2={result.n2}, N1={result.N1}, N2={result.N2}");
+            explanation.Add($"N={result.ProgramLength_N}, V={result.Volume_V:F2}, L'={result.ProgramLevel_Lprime:F4}, D={result.Difficulty_D:F2}, E={result.Effort_E:F2}");
 
-            return Math.Min(100.0, score);
+            return finalScore;
         }
     }
 }

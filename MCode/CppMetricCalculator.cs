@@ -62,14 +62,13 @@ namespace MCode
         // Для строковых и символьных литералов (включая префиксы и экранирование)
         private static readonly Regex StringCharLiteralRegex = new Regex(@"(L|u|U|u8)?(""(\\.|[^""\\])*""|'(\\.|[^'\\])*')", RegexOptions.Compiled);
         // Для "остальных" непустых символов, которые могут быть операторами, не пойманными ранее
-        // (например, одиночные скобки, если мы решим их считать операторами)
-        // private static readonly Regex PunctuationRegex = new Regex(@"[^\s\w]+", RegexOptions.Compiled);
 
 
         private HashSet<string> _foundOperators;
         private HashSet<string> _foundOperands;
         private int _N1; // Общее число операторов
         private int _N2; // Общее число операндов
+        private int _totalLines, _codeLines, _commentLines, _blankLines;
 
         public void Calculate(string sourceCode)
         {
@@ -77,16 +76,22 @@ namespace MCode
             _foundOperands = new HashSet<string>();
             _N1 = 0;
             _N2 = 0;
+            _totalLines = 0; _codeLines = 0; _commentLines = 0; _blankLines = 0;
+            // Подсчет строк ДО удаления комментариев
+            // Используем тот же LineCounterUtil, но isCommentLineOnly будет специфичен для C++
+            LineCounterUtil.CountLines(sourceCode,
+                out _totalLines, out _codeLines, out _commentLines, out _blankLines,
+                isCommentLineOnly: line => line.StartsWith("//") || (line.StartsWith("/*") && line.EndsWith("*/")), // Очень упрощенно для блочных
+                isCodeLine: line => !(line.StartsWith("//") || (line.StartsWith("/*") && line.EndsWith("*/"))) && line.Length > 0
+            );
 
             // 1. Предварительная обработка: удаление комментариев и директив препроцессора
-            // Это очень грубо и может сломать код (например, комментарии внутри строк или макросов)
             sourceCode = Regex.Replace(sourceCode, @"//.*?\n", "\n");      // Однострочные комментарии
             sourceCode = Regex.Replace(sourceCode, @"/\*.*?\*/", "", RegexOptions.Singleline); // Многострочные комментарии
             sourceCode = Regex.Replace(sourceCode, @"#.*?\n", "\n");        // Директивы препроцессора (очень грубо)
 
             // 2. Этап "токенизации" (очень упрощенный)
             // Создаем одно большое регулярное выражение, чтобы попытаться разбить код на потенциальные токены
-            // Порядок важен: сначала более специфичные (литералы, идентификаторы), потом общие операторы
             string combinedPattern = string.Join("|",
                 NumericLiteralRegex.ToString(),     // Числа
                 StringCharLiteralRegex.ToString(),  // Строки/символы
@@ -148,7 +153,11 @@ namespace MCode
                 N1 = _N1,
                 N2 = _N2,
                 n1 = _foundOperators.Count,
-                n2 = _foundOperands.Count
+                n2 = _foundOperands.Count,
+                TotalLines = _totalLines,
+                CodeLines = _codeLines, // Этот показатель будет менее точным для C++ из-за Regex
+                CommentLines = _commentLines,
+                BlankLines = _blankLines
             };
         }
     }

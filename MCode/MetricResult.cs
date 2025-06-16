@@ -9,6 +9,11 @@ namespace MCode
         public int n1 { get; set; } // Число уникальных операторов (словарь операторов)
         public int n2 { get; set; } // Число уникальных операндов (словарь операндов)
 
+        public int TotalLines { get; set; }         // SLOC - Общее количество строк в файле
+        public int CodeLines { get; set; }          // LLOC - Строки с кодом (логические)
+        public int CommentLines { get; set; }       // CLOC - Строки с комментариями
+        public int BlankLines { get; set; }         // BLOC - Пустые строки
+
         // n = n1 + n2 Длина программы
         public int VocabularySize_n => n1 + n2;
 
@@ -76,7 +81,11 @@ namespace MCode
 
         public override string ToString()
         {
-            return $"Словарь операторов (n1): {n1}\n" +
+            return $"Общее кол-во строк (SLOC): {TotalLines}\n" +
+                   $"Строк с кодом (LLOC): {CodeLines}\n" +
+                   $"Строк с комментариями (CLOC): {CommentLines}\n" +
+                   $"Пустых строк (BLOC): {BlankLines}\n" +
+                   $"Словарь операторов (n1): {n1}\n" +
                    $"Словарь операндов (n2): {n2}\n" +
                    $"Общее число операторов (N1): {N1}\n" +
                    $"Общее число операндов (N2): {N2}\n" +

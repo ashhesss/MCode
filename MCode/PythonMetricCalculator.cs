@@ -9,16 +9,21 @@ namespace MCode
 {
     public class PythonMetricCalculator : IMetricCalculator
     {
-        private HashSet<string> _operators = new HashSet<string>();
-        private HashSet<string> _operands = new HashSet<string>();
+        public HashSet<string> _operators = new HashSet<string>();
+        public HashSet<string> _operands = new HashSet<string>();
         private int _N1, _N2;
+        private int _totalLines, _codeLines, _commentLines, _blankLines;
 
         public void Calculate(string sourceCode)
         {
-            _operators.Clear();
-            _operands.Clear();
-            _N1 = 0;
-            _N2 = 0;
+            _operators.Clear(); _operands.Clear(); _N1 = 0; _N2 = 0;
+            _totalLines = 0; _codeLines = 0; _commentLines = 0; _blankLines = 0;
+
+            LineCounterUtil.CountLines(sourceCode,
+                out _totalLines, out _codeLines, out _commentLines, out _blankLines,
+                isCommentLineOnly: line => line.StartsWith("#"),
+                isCodeLine: line => !line.StartsWith("#") && line.Length > 0 // Очень упрощенно: не комментарий и не пустая (после trim)
+            );
 
             string tempPyFile = null;
             try
@@ -138,7 +143,11 @@ namespace MCode
                 N1 = _N1,
                 N2 = _N2,
                 n1 = _operators.Count,
-                n2 = _operands.Count
+                n2 = _operands.Count,
+                TotalLines = _totalLines,
+                CodeLines = _codeLines,
+                CommentLines = _commentLines,
+                BlankLines = _blankLines
             };
         }
     }

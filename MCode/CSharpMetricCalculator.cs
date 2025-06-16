@@ -13,6 +13,7 @@ namespace MCode
         private HashSet<string> _operators = new HashSet<string>();
         private HashSet<string> _operands = new HashSet<string>();
         private int _N1, _N2; // Total counts
+        private int _totalLines, _codeLines, _commentLines, _blankLines;
 
         //Список ключевых слов, которые обычно считаются операторами в Холстеде
         private static readonly HashSet<SyntaxKind> HalsteadKeywordOperators = new HashSet<SyntaxKind>
@@ -25,11 +26,6 @@ namespace MCode
             SyntaxKind.CheckedKeyword, SyntaxKind.UncheckedKeyword, SyntaxKind.TypeOfKeyword, SyntaxKind.SizeOfKeyword,
             SyntaxKind.IsKeyword, SyntaxKind.AsKeyword, SyntaxKind.StackAllocKeyword,
             SyntaxKind.YieldKeyword, // yield return, yield break
-            // Типы данных обычно операнды, но объявления (int x) - 'int' может трактоваться как оператор объявления
-            // Для простоты, здесь мы не будем явно включать типы как операторы, они станут частью операндов (имен переменных)
-            // или структуры объявлений.
-            // Модификаторы доступа (public, private) и другие (static, const, readonly) обычно не считаются операторами Холстеда.
-            // Их можно добавить, если есть специфические требования.
         };
 
         public void Calculate(string sourceCode)
@@ -38,9 +34,56 @@ namespace MCode
             _operands.Clear();
             _N1 = 0;
             _N2 = 0;
+            _totalLines = 0; _codeLines = 0; _commentLines = 0; _blankLines = 0;
 
             SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceCode);
             var root = tree.GetRoot();
+
+            // Подсчет строк с использованием Roslyn
+            var lines = sourceCode.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            _totalLines = lines.Length;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string lineText = lines[i];
+                string trimmedLine = lineText.Trim();
+
+                if (string.IsNullOrWhiteSpace(trimmedLine))
+                {
+                    _blankLines++;
+                }
+                else
+                {
+                    // Проверяем, является ли строка целиком комментарием
+                    // Для этого найдем все тривии на этой строке
+                    bool isLineOnlyComment = false;
+                    if (trimmedLine.StartsWith("//")) isLineOnlyComment = true;
+
+                    if (trimmedLine.StartsWith("//") ||
+                        (trimmedLine.StartsWith("/*") && trimmedLine.EndsWith("*/") && !trimmedLine.Substring(2, trimmedLine.Length - 4).Any(c => !char.IsWhiteSpace(c) && c != '*')) ||
+                        (trimmedLine.StartsWith("/*") && !trimmedLine.Contains("*/") && !root.DescendantTrivia().Any(t => t.IsKind(SyntaxKind.MultiLineCommentTrivia) && t.ToString().Contains(trimmedLine) && t.ToString().IndexOf(trimmedLine) > 0 && t.ToString().IndexOf(trimmedLine) + trimmedLine.Length < t.ToString().Length - 2)) // начало многострочного
+                        )
+                    {
+                        // Эта логика для многострочных комментариев очень неточна.
+                        // Лучше использовать LineCounterUtil с более простой логикой для единообразия,
+                        // или полностью переписать на основе обхода SyntaxTrivia дерева Roslyn.
+                        // Пока что, для простоты:
+                        if (trimmedLine.StartsWith("//")) _commentLines++;
+                        else _codeLines++; // Если не //, но есть текст - считаем кодом (упрощение)
+                    }
+                    else
+                    {
+                        _codeLines++;
+                    }
+                }
+            }
+            // Пересчитаем с LineCounterUtil для большей согласованности, если не хотим сложную логику с Roslyn Trivia
+            LineCounterUtil.CountLines(sourceCode,
+                out _totalLines, out _codeLines, out _commentLines, out _blankLines,
+                isCommentLineOnly: line => line.StartsWith("//") || (line.StartsWith("/*") && line.EndsWith("*/")), // очень упрощенно для блочных
+                isCodeLine: line => !(line.StartsWith("//") || (line.StartsWith("/*") && line.EndsWith("*/"))) && line.Length > 0
+            );
+
 
             var walker = new CSharpHalsteadWalker(this);
             walker.Visit(root);
@@ -87,7 +130,11 @@ namespace MCode
                 N1 = _N1,
                 N2 = _N2,
                 n1 = _operators.Count,
-                n2 = _operands.Count
+                n2 = _operands.Count,
+                TotalLines = _totalLines,
+                CodeLines = _codeLines,
+                CommentLines = _commentLines,
+                BlankLines = _blankLines
             };
         }
 

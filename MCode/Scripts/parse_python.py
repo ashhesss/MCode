@@ -29,9 +29,9 @@ class HalsteadMetricsVisitor(ast.NodeVisitor):
             name_str = operand_value_or_node.id
         elif isinstance(operand_value_or_node, ast.Constant): # Python 3.8+
             name_str = str(operand_value_or_node.value) # У Constant значение в .value
-        elif isinstance(operand_value_or_node, (ast.Num, ast.Str, ast.Bytes)): # Python < 3.8
+        elif isinstance(operand_value_or_node, ast.Constant): # Python < 3.8
             name_str = str(getattr(operand_value_or_node, 'n', getattr(operand_value_or_node, 's', None)))
-        elif isinstance(operand_value_or_node, ast.NameConstant): # Python < 3.8 for True, False, None
+        elif isinstance(operand_value_or_node, ast.Constant): # Python < 3.8 for True, False, None
              name_str = str(operand_value_or_node.value)
         else: # Предполагаем, что это уже строка (например, для node.attr из Attribute)
             name_str = str(operand_value_or_node)

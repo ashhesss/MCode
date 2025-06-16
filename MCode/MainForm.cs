@@ -869,6 +869,14 @@ namespace MCode
             AppendToRichTextBox($"Результаты анализа для файла: {fileName}", Color.DarkBlue, true, 12);
             AppendToRichTextBox("--------------------------------------------------", Color.Gray);
 
+            AddMetricToGrid("Общее кол-во строк (SLOC)", result.TotalLines, "Общее количество физических строк в файле.", "F0");
+            AddMetricToGrid("Строк с кодом (LLOC)", result.CodeLines, "Приблизительное количество строк, содержащих исполняемый код.", "F0");
+            AddMetricToGrid("Строк с комментариями (CLOC)", result.CommentLines, "Приблизительное количество строк, содержащих только комментарии.", "F0");
+            AddMetricToGrid("Пустых строк (BLOC)", result.BlankLines, "Количество пустых или содержащих только пробелы строк.", "F0");
+            resultsDataGridView.Rows.Add(new DataGridViewRow()); // Пустая строка-разделитель в таблице
+            resultsDataGridView.Rows[resultsDataGridView.Rows.Count - 1].Cells[0].Value = " Метрики Холстеда";
+            resultsDataGridView.Rows[resultsDataGridView.Rows.Count - 1].Cells[0].Style.Font = new Font(resultsDataGridView.Font, FontStyle.Bold);
+
             AddMetricToGrid("Словарь операторов (n1)", result.n1, "Число уникальных операторов.", "F0");
             AddMetricToGrid("Словарь операндов (n2)", result.n2, "Число уникальных операндов.", "F0");
             AddMetricToGrid("Общее число операторов (N1)", result.N1, "Суммарное количество всех операторов.", "F0");
